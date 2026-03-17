@@ -90,9 +90,11 @@ npm run clean
 
 ## 📡 Endpoints da API
 
-| Método | Rota          | Descrição        |
-| ------ | ------------- | ---------------- |
-| GET    | /api/health   | Health check     |
+| Método | Rota           | Descrição              |
+| ------ | -------------- | ---------------------- |
+| GET    | /api/health    | Health check           |
+| GET    | /api/docs      | Documentação Swagger   |
+| GET    | /api/docs.json | Swagger spec em JSON   |
 
 ## 📝 Convenções de Commits
 
