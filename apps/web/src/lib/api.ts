@@ -290,6 +290,29 @@ export async function createAppointment(body: AppointmentPayload): Promise<ApiRe
   });
 }
 
+/** Usuário cria agendamento para si mesmo (clientId inferido do token) */
+export async function bookAppointment(body: Omit<AppointmentPayload, 'clientId'>): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest('/api/appointments/book', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** Listar apenas os agendamentos do usuário autenticado */
+export async function getMyAppointments(status?: string): Promise<ApiResponse<{ appointments: Appointment[] }>> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest(`/api/appointments/my${query}`);
+}
+
+/** Usuário cancela seu próprio agendamento */
+export async function cancelMyAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/appointments/${id}/cancel`, {
+    method: 'PATCH',
+  });
+}
+
 export async function updateAppointmentStatus(
   id: string,
   status: AppointmentStatus,

@@ -139,6 +139,99 @@ appointmentRouter.get('/availability', authMiddleware, (req, res, next) =>
 
 /**
  * @swagger
+ * /api/appointments/my:
+ *   get:
+ *     summary: Meus agendamentos (Usuário)
+ *     description: Retorna os agendamentos do usuário autenticado.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [SCHEDULED, CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW]
+ *     responses:
+ *       200:
+ *         description: Meus agendamentos
+ */
+appointmentRouter.get('/my', authMiddleware, (req, res, next) =>
+  appointmentController.findMyAppointments(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/appointments/book:
+ *   post:
+ *     summary: Agendar (Usuário)
+ *     description: Permite que o usuário autenticado crie um agendamento para si mesmo.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - productId
+ *               - employeeId
+ *               - date
+ *             properties:
+ *               productId:
+ *                 type: string
+ *               employeeId:
+ *                 type: string
+ *               date:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2026-03-20T10:00:00.000Z"
+ *               notes:
+ *                 type: string
+ *                 maxLength: 500
+ *     responses:
+ *       201:
+ *         description: Agendamento criado com sucesso
+ *       400:
+ *         description: Dados inválidos
+ *       409:
+ *         description: Conflito de horário
+ */
+appointmentRouter.post('/book', authMiddleware, (req, res, next) =>
+  appointmentController.createForUser(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/appointments/{id}/cancel:
+ *   patch:
+ *     summary: Cancelar meu agendamento (Usuário)
+ *     description: Permite que o usuário cancele um agendamento próprio.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Agendamento cancelado
+ *       403:
+ *         description: Sem permissão
+ *       404:
+ *         description: Agendamento não encontrado
+ */
+appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
+  appointmentController.cancelOwn(req, res, next),
+);
+
+/**
+ * @swagger
  * /api/appointments:
  *   get:
  *     summary: Listar agendamentos
