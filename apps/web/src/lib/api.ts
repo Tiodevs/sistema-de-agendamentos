@@ -132,4 +132,81 @@ export async function deleteProduct(id: string): Promise<ApiResponse<{ product: 
   });
 }
 
+/* ─── Employees ─── */
+
+export interface EmployeeProduct {
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    duration: number;
+    active: boolean;
+  };
+  assignedAt: string;
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  avatar: string | null;
+  active: boolean;
+  products: EmployeeProduct[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmployeePayload {
+  name: string;
+  email: string;
+  phone?: string;
+  avatar?: string;
+}
+
+export async function getEmployees(includeInactive = false): Promise<ApiResponse<{ employees: Employee[] }>> {
+  const query = includeInactive ? '?includeInactive=true' : '';
+  return apiRequest(`/api/employees${query}`);
+}
+
+export async function getEmployee(id: string): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}`);
+}
+
+export async function createEmployee(body: EmployeePayload): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest('/api/employees', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateEmployee(id: string, body: Partial<EmployeePayload>): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function toggleEmployee(id: string): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}/toggle`, {
+    method: 'PATCH',
+  });
+}
+
+export async function deleteEmployee(id: string): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function assignEmployeeProducts(
+  employeeId: string,
+  productIds: string[],
+): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${employeeId}/products`, {
+    method: 'PUT',
+    body: JSON.stringify({ productIds }),
+  });
+}
+
 export type { ApiResponse, AuthData };

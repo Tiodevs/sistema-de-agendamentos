@@ -11,6 +11,7 @@ import {
   Menu,
   ChevronLeft,
   CalendarDays,
+  Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -31,6 +32,11 @@ const sidebarItems = [
     title: 'Produtos',
     href: '/admin/products',
     icon: Package,
+  },
+  {
+    title: 'Funcionários',
+    href: '/admin/employees',
+    icon: Users,
   },
 ];
 
