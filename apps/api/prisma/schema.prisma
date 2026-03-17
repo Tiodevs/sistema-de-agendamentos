@@ -33,5 +33,35 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  employees EmployeeProduct[]
+
   @@map("products")
+}
+
+model Employee {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  avatar    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products EmployeeProduct[]
+
+  @@map("employees")
+}
+
+model EmployeeProduct {
+  employeeId String
+  productId  String
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+  @@id([employeeId, productId])
+  @@map("employee_products")
 }
