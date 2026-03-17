@@ -20,6 +20,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  appointments Appointment[]
+
   @@map("users")
 }
 
@@ -33,7 +35,8 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  employees EmployeeProduct[]
+  employees    EmployeeProduct[]
+  appointments Appointment[]
 
   @@map("products")
 }
@@ -48,7 +51,8 @@ model Employee {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  products EmployeeProduct[]
+  products     EmployeeProduct[]
+  appointments Appointment[]
 
   @@map("employees")
 }
@@ -64,4 +68,39 @@ model EmployeeProduct {
 
   @@id([employeeId, productId])
   @@map("employee_products")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id         String            @id @default(cuid())
+  date       DateTime          // data e hora do início
+  endDate    DateTime          // data e hora do fim (calculado: date + product.duration)
+  status     AppointmentStatus @default(SCHEDULED)
+  notes      String?
+  price      Decimal           @db.Decimal(10, 2) // preço no momento do agendamento
+
+  clientId   String
+  client     User              @relation(fields: [clientId], references: [id])
+
+  productId  String
+  product    Product           @relation(fields: [productId], references: [id])
+
+  employeeId String
+  employee   Employee          @relation(fields: [employeeId], references: [id])
+
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@index([employeeId, date])
+  @@index([clientId])
+  @@index([date])
+  @@map("appointments")
 }
