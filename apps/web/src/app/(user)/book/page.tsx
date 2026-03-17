@@ -97,6 +97,7 @@ export default function BookPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [dayClosed, setDayClosed] = useState(false);
 
   // Selections
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -147,9 +148,13 @@ export default function BookPage() {
   const fetchSlots = useCallback(async (employeeId: string, productId: string, date: string) => {
     setSlotsLoading(true);
     setSelectedSlot(null);
+    setDayClosed(false);
     try {
       const res = await getAvailableSlots(employeeId, productId, date);
-      if (res.data?.slots) {
+      if (res.data?.isClosed) {
+        setDayClosed(true);
+        setSlots([]);
+      } else if (res.data?.slots) {
         setSlots(res.data.slots);
       }
     } catch {
@@ -472,7 +477,17 @@ export default function BookPage() {
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
               </div>
-            ) : !selectedDate ? null : availableSlots.length === 0 ? (
+            ) : !selectedDate ? null : dayClosed ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-red-500/30 bg-red-500/5 py-8">
+                <CalendarDays className="mb-2 size-8 text-red-400/60" />
+                <p className="text-sm font-medium text-red-400">
+                  Fechado neste dia
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Feriado ou dia sem funcionamento. Escolha outra data.
+                </p>
+              </div>
+            ) : availableSlots.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-8">
                 <Clock className="mb-2 size-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">

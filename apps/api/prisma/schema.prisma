@@ -104,3 +104,33 @@ model Appointment {
   @@index([date])
   @@map("appointments")
 }
+
+model BusinessHour {
+  id        String  @id @default(cuid())
+  dayOfWeek Int     // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+  openTime  String  // formato "HH:mm" ex: "08:00"
+  closeTime String  // formato "HH:mm" ex: "18:00"
+  isClosed  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dayOfWeek])
+  @@map("business_hours")
+}
+
+model SpecialDay {
+  id          String  @id @default(cuid())
+  date        DateTime @db.Date // apenas a data, sem hora
+  title       String   // ex: "Natal", "Carnaval"
+  description String?
+  isClosed    Boolean  @default(true)
+  openTime    String?  // horário especial de abertura (se isClosed = false)
+  closeTime   String?  // horário especial de fechamento (se isClosed = false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date])
+  @@map("special_days")
+}

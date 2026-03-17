@@ -1,14 +1,11 @@
 import { prisma } from '../config/database';
 import { CreateAppointmentInput } from '../schemas/appointment.schema';
-
-// Horário de funcionamento (pode ser configurável no futuro)
-const BUSINESS_HOURS = {
-  start: 8, // 08:00
-  end: 18,  // 18:00
-};
+import { ScheduleService } from './schedule.service';
 
 // Intervalo entre slots em minutos
 const SLOT_INTERVAL = 15;
+
+const scheduleService = new ScheduleService();
 
 export class AppointmentService {
   async findAll(filters?: { employeeId?: string; clientId?: string; status?: string; from?: string; to?: string }) {
@@ -170,13 +167,12 @@ export class AppointmentService {
 
   /**
    * Retorna os slots disponíveis de um funcionário para um produto em uma data específica.
-   * Gera slots a cada SLOT_INTERVAL minutos dentro do horário de funcionamento,
-   * excluindo os que conflitam com agendamentos existentes.
+   * Usa os horários de funcionamento configurados e respeita dias especiais/feriados.
    */
   async getAvailableSlots(employeeId: string, productId: string, dateStr: string) {
     // Validar produto
     const product = await prisma.product.findUnique({ where: { id: productId } });
-    if (!product || !product.active) {
+    if (!product?.active) {
       const error = new Error('Produto não encontrado ou inativo') as Error & { statusCode: number };
       error.statusCode = 400;
       throw error;
@@ -184,7 +180,7 @@ export class AppointmentService {
 
     // Validar funcionário
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
-    if (!employee || !employee.active) {
+    if (!employee?.active) {
       const error = new Error('Funcionário não encontrado ou inativo') as Error & { statusCode: number };
       error.statusCode = 400;
       throw error;
@@ -200,11 +196,26 @@ export class AppointmentService {
       throw error;
     }
 
+    // Buscar horário de funcionamento para essa data (considera dias especiais)
+    const schedule = await scheduleService.getHoursForDate(dateStr);
+
+    // Se o dia estiver fechado, retornar sem slots
+    if (schedule.isClosed) {
+      return {
+        date: dateStr,
+        employee: { id: employee.id, name: employee.name },
+        product: { id: product.id, name: product.name, duration: product.duration },
+        businessHours: { start: schedule.openTime, end: schedule.closeTime },
+        isClosed: true,
+        slots: [],
+      };
+    }
+
     const duration = product.duration;
 
     // Criar data no fuso de São Paulo (UTC-3)
-    const dayStart = new Date(`${dateStr}T${String(BUSINESS_HOURS.start).padStart(2, '0')}:00:00-03:00`);
-    const dayEnd = new Date(`${dateStr}T${String(BUSINESS_HOURS.end).padStart(2, '0')}:00:00-03:00`);
+    const dayStart = new Date(`${dateStr}T${schedule.openTime}:00-03:00`);
+    const dayEnd = new Date(`${dateStr}T${schedule.closeTime}:00-03:00`);
 
     // Buscar agendamentos do funcionário naquele dia (exceto cancelados)
     const existingAppointments = await prisma.appointment.findMany({
@@ -251,7 +262,8 @@ export class AppointmentService {
       date: dateStr,
       employee: { id: employee.id, name: employee.name },
       product: { id: product.id, name: product.name, duration: product.duration },
-      businessHours: BUSINESS_HOURS,
+      businessHours: { start: schedule.openTime, end: schedule.closeTime },
+      isClosed: false,
       slots,
     };
   }

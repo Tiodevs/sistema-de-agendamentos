@@ -258,7 +258,8 @@ export interface AvailabilityResponse {
   date: string;
   employee: { id: string; name: string };
   product: { id: string; name: string; duration: number };
-  businessHours: { start: number; end: number };
+  businessHours: { start: string; end: string };
+  isClosed?: boolean;
   slots: AvailabilitySlot[];
 }
 
@@ -336,6 +337,82 @@ export async function getAvailableSlots(
 ): Promise<ApiResponse<AvailabilityResponse>> {
   const params = new URLSearchParams({ employeeId, productId, date });
   return apiRequest(`/api/appointments/availability?${params.toString()}`);
+}
+
+/* ─── Schedule (Business Hours & Special Days) ─── */
+
+export interface BusinessHour {
+  id: string;
+  dayOfWeek: number;
+  openTime: string;
+  closeTime: string;
+  isClosed: boolean;
+  dayName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessHourPayload {
+  dayOfWeek: number;
+  openTime: string;
+  closeTime: string;
+  isClosed: boolean;
+}
+
+export interface SpecialDay {
+  id: string;
+  date: string;
+  title: string;
+  description: string | null;
+  isClosed: boolean;
+  openTime: string | null;
+  closeTime: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SpecialDayPayload {
+  date: string;
+  title: string;
+  description?: string;
+  isClosed?: boolean;
+  openTime?: string | null;
+  closeTime?: string | null;
+}
+
+export async function getBusinessHours(): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
+  return apiRequest('/api/schedule/business-hours');
+}
+
+export async function updateAllBusinessHours(hours: BusinessHourPayload[]): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
+  return apiRequest('/api/schedule/business-hours', {
+    method: 'PUT',
+    body: JSON.stringify({ hours }),
+  });
+}
+
+export async function getSpecialDays(): Promise<ApiResponse<{ days: SpecialDay[] }>> {
+  return apiRequest('/api/schedule/special-days');
+}
+
+export async function createSpecialDay(body: SpecialDayPayload): Promise<ApiResponse<{ day: SpecialDay }>> {
+  return apiRequest('/api/schedule/special-days', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateSpecialDay(id: string, body: Partial<SpecialDayPayload>): Promise<ApiResponse<{ day: SpecialDay }>> {
+  return apiRequest(`/api/schedule/special-days/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteSpecialDay(id: string): Promise<ApiResponse<{ day: SpecialDay }>> {
+  return apiRequest(`/api/schedule/special-days/${id}`, {
+    method: 'DELETE',
+  });
 }
 
 export type { ApiResponse, AuthData };
