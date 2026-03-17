@@ -77,4 +77,59 @@ export async function getMe(): Promise<ApiResponse<{ user: AuthData['user'] }>> 
   return apiRequest('/api/auth/me');
 }
 
+/* ─── Products ─── */
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  duration: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductPayload {
+  name: string;
+  description?: string;
+  price: number;
+  duration: number;
+}
+
+export async function getProducts(includeInactive = false): Promise<ApiResponse<{ products: Product[] }>> {
+  const query = includeInactive ? '?includeInactive=true' : '';
+  return apiRequest(`/api/products${query}`);
+}
+
+export async function getProduct(id: string): Promise<ApiResponse<{ product: Product }>> {
+  return apiRequest(`/api/products/${id}`);
+}
+
+export async function createProduct(body: ProductPayload): Promise<ApiResponse<{ product: Product }>> {
+  return apiRequest('/api/products', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateProduct(id: string, body: Partial<ProductPayload>): Promise<ApiResponse<{ product: Product }>> {
+  return apiRequest(`/api/products/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function toggleProduct(id: string): Promise<ApiResponse<{ product: Product }>> {
+  return apiRequest(`/api/products/${id}/toggle`, {
+    method: 'PATCH',
+  });
+}
+
+export async function deleteProduct(id: string): Promise<ApiResponse<{ product: Product }>> {
+  return apiRequest(`/api/products/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export type { ApiResponse, AuthData };
