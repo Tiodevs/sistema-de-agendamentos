@@ -30,6 +30,10 @@ const swaggerOptions: swaggerJsdoc.Options = {
         name: 'Auth',
         description: 'Autenticação e registro de usuários',
       },
+      {
+        name: 'Products',
+        description: 'Gerenciamento de produtos/serviços',
+      },
     ],
   },
   apis: ['./src/routes/*.ts'],
