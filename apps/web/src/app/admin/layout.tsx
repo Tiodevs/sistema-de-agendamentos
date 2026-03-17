@@ -86,7 +86,9 @@ function SidebarContent({
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="flex flex-col gap-1">
           {sidebarItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+            const isActive = item.href === '/admin'
+              ? pathname === '/admin'
+              : pathname === item.href || pathname.startsWith(item.href + '/');
             const linkContent = (
               <Link
                 key={item.href}
@@ -198,7 +200,7 @@ export default function AdminLayout({ children }: Readonly<{ children: React.Rea
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          'hidden border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:block',
+          'sticky top-0 hidden h-screen border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:block',
           collapsed ? 'w-[68px]' : 'w-64',
         )}
       >
