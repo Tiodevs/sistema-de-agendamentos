@@ -26,6 +26,10 @@ const swaggerOptions: swaggerJsdoc.Options = {
         name: 'Health',
         description: 'Verificação de saúde da API',
       },
+      {
+        name: 'Auth',
+        description: 'Autenticação e registro de usuários',
+      },
     ],
   },
   apis: ['./src/routes/*.ts'],
