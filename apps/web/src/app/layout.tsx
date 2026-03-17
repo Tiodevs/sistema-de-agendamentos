@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import '@/styles/globals.css';
 import '@/styles/globals.scss';
 import { cn } from '@/lib/utils';
+import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Sistema de Agendamentos',
@@ -16,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="dark" suppressHydrationWarning>
       <body className={cn('min-h-screen bg-background font-sans antialiased')}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
