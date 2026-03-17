@@ -415,4 +415,47 @@ export async function deleteSpecialDay(id: string): Promise<ApiResponse<{ day: S
   });
 }
 
+/* ─── Dashboard ─── */
+
+export interface DashboardData {
+  overview: {
+    activeProducts: number;
+    totalProducts: number;
+    activeEmployees: number;
+    totalEmployees: number;
+    totalClients: number;
+    monthAppointments: number;
+    appointmentChange: number;
+    monthRevenue: number;
+    revenueChange: number;
+  };
+  todayAppointments: Array<{
+    id: string;
+    date: string;
+    endDate: string;
+    status: AppointmentStatus;
+    client: { id: string; name: string };
+    product: { id: string; name: string; duration: number };
+    employee: { id: string; name: string };
+  }>;
+  statusBreakdown: Record<string, number>;
+  recentAppointments: Array<{
+    id: string;
+    date: string;
+    endDate: string;
+    status: AppointmentStatus;
+    price: number;
+    client: { id: string; name: string };
+    product: { id: string; name: string; duration: number; price: number };
+    employee: { id: string; name: string };
+    createdAt: string;
+  }>;
+  topProducts: Array<{ productId: string; name: string; count: number }>;
+  topEmployees: Array<{ employeeId: string; name: string; count: number }>;
+}
+
+export async function getDashboardStats(): Promise<ApiResponse<DashboardData>> {
+  return apiRequest('/api/dashboard/stats');
+}
+
 export type { ApiResponse, AuthData };

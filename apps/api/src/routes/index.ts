@@ -5,6 +5,7 @@ import { productRouter } from './product.routes';
 import { employeeRouter } from './employee.routes';
 import { appointmentRouter } from './appointment.routes';
 import { scheduleRouter } from './schedule.routes';
+import { dashboardRouter } from './dashboard.routes';
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use('/products', productRouter);
 router.use('/employees', employeeRouter);
 router.use('/appointments', appointmentRouter);
 router.use('/schedule', scheduleRouter);
+router.use('/dashboard', dashboardRouter);
 
 export { router };
