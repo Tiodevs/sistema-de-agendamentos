@@ -29,6 +29,11 @@ const sidebarItems = [
     icon: LayoutDashboard,
   },
   {
+    title: 'Agendamentos',
+    href: '/admin/appointments',
+    icon: CalendarDays,
+  },
+  {
     title: 'Produtos',
     href: '/admin/products',
     icon: Package,

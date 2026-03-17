@@ -77,6 +77,19 @@ export async function getMe(): Promise<ApiResponse<{ user: AuthData['user'] }>> 
   return apiRequest('/api/auth/me');
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: string;
+}
+
+export async function getClients(search?: string): Promise<ApiResponse<{ clients: Client[] }>> {
+  const query = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiRequest(`/api/auth/clients${query}`);
+}
+
 /* ─── Products ─── */
 
 export interface Product {
@@ -207,6 +220,99 @@ export async function assignEmployeeProducts(
     method: 'PUT',
     body: JSON.stringify({ productIds }),
   });
+}
+
+/* ─── Appointments ─── */
+
+export type AppointmentStatus = 'SCHEDULED' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+
+export interface Appointment {
+  id: string;
+  date: string;
+  endDate: string;
+  status: AppointmentStatus;
+  notes: string | null;
+  price: number;
+  client: { id: string; name: string; email: string; phone: string | null };
+  product: { id: string; name: string; duration: number; price: number };
+  employee: { id: string; name: string; email: string; phone: string | null };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppointmentPayload {
+  productId: string;
+  employeeId: string;
+  clientId: string;
+  date: string;
+  notes?: string;
+}
+
+export interface AvailabilitySlot {
+  start: string;
+  end: string;
+  available: boolean;
+}
+
+export interface AvailabilityResponse {
+  date: string;
+  employee: { id: string; name: string };
+  product: { id: string; name: string; duration: number };
+  businessHours: { start: number; end: number };
+  slots: AvailabilitySlot[];
+}
+
+export async function getAppointments(filters?: {
+  employeeId?: string;
+  clientId?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResponse<{ appointments: Appointment[] }>> {
+  const params = new URLSearchParams();
+  if (filters?.employeeId) params.set('employeeId', filters.employeeId);
+  if (filters?.clientId) params.set('clientId', filters.clientId);
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.from) params.set('from', filters.from);
+  if (filters?.to) params.set('to', filters.to);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return apiRequest(`/api/appointments${query}`);
+}
+
+export async function getAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/appointments/${id}`);
+}
+
+export async function createAppointment(body: AppointmentPayload): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest('/api/appointments', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateAppointmentStatus(
+  id: string,
+  status: AppointmentStatus,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/appointments/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deleteAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/appointments/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getAvailableSlots(
+  employeeId: string,
+  productId: string,
+  date: string,
+): Promise<ApiResponse<AvailabilityResponse>> {
+  const params = new URLSearchParams({ employeeId, productId, date });
+  return apiRequest(`/api/appointments/availability?${params.toString()}`);
 }
 
 export type { ApiResponse, AuthData };
