@@ -34,6 +34,10 @@ const swaggerOptions: swaggerJsdoc.Options = {
         name: 'Products',
         description: 'Gerenciamento de produtos/serviços',
       },
+      {
+        name: 'Employees',
+        description: 'Gerenciamento de funcionários e atribuição de produtos',
+      },
     ],
   },
   apis: ['./src/routes/*.ts'],
