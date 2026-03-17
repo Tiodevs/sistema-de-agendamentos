@@ -72,4 +72,18 @@ export class AuthController {
       next(error);
     }
   }
+
+  async getClients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const search = req.query.search as string | undefined;
+      const clients = await authService.getClients(search);
+
+      res.status(200).json({
+        status: 'success',
+        data: { clients },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

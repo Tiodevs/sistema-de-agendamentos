@@ -38,6 +38,10 @@ const swaggerOptions: swaggerJsdoc.Options = {
         name: 'Employees',
         description: 'Gerenciamento de funcionários e atribuição de produtos',
       },
+      {
+        name: 'Appointments',
+        description: 'Agendamentos e disponibilidade de horários',
+      },
     ],
   },
   apis: ['./src/routes/*.ts'],

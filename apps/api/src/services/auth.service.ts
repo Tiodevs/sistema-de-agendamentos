@@ -136,4 +136,27 @@ export class AuthService {
 
     return user;
   }
+
+  async getClients(search?: string) {
+    const where: Record<string, unknown> = { active: true };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    return prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+      },
+      orderBy: { name: 'asc' },
+      take: 50,
+    });
+  }
 }

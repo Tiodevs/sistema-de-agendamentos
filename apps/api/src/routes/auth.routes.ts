@@ -172,4 +172,25 @@ authRouter.post('/login', (req, res, next) => authController.login(req, res, nex
  */
 authRouter.get('/me', authMiddleware, (req, res, next) => authController.me(req, res, next));
 
+/**
+ * @swagger
+ * /api/auth/clients:
+ *   get:
+ *     summary: Listar clientes (Admin)
+ *     description: Retorna lista de usuários ativos para seleção em agendamentos.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Filtrar por nome ou e-mail
+ *     responses:
+ *       200:
+ *         description: Lista de clientes
+ */
+authRouter.get('/clients', authMiddleware, (req, res, next) => authController.getClients(req, res, next));
+
 export { authRouter };
