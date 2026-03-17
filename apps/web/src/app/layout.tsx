@@ -7,6 +7,9 @@ import { Providers } from './providers';
 export const metadata: Metadata = {
   title: 'Sistema de Agendamentos',
   description: 'Sistema de agendamentos online',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

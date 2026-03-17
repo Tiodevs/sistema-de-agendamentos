@@ -14,6 +14,7 @@ import {
   Users,
   Clock,
 } from 'lucide-react';
+import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
@@ -73,10 +74,10 @@ function SidebarContent({
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-4">
-        <CalendarDays className="size-6 shrink-0 text-sidebar-primary" />
+        <Logo size={collapsed ? 28 : 32} />
         {!collapsed && (
           <span className="text-lg font-bold text-sidebar-foreground">
-            Agendamentos
+            Sentier
           </span>
         )}
       </div>

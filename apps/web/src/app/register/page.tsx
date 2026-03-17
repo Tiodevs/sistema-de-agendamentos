@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, UserPlus } from 'lucide-react';
+import { LogoWithText } from '@/components/logo';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -64,9 +65,12 @@ export default function RegisterPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-secondary p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">📅 Criar Conta</CardTitle>
-          <CardDescription>Preencha os dados para se cadastrar</CardDescription>
+        <CardHeader className="flex flex-col items-center gap-4 text-center">
+          <LogoWithText logoSize={48} textClassName="text-2xl" />
+          <div>
+            <CardTitle className="text-2xl font-bold">Criar Conta</CardTitle>
+            <CardDescription>Preencha os dados para se cadastrar</CardDescription>
+          </div>
         </CardHeader>
 
         <Separator />
@@ -159,7 +163,7 @@ export default function RegisterPage() {
             </div>
           </CardContent>
 
-          <CardFooter className="flex flex-col gap-4">
+          <CardFooter className="flex flex-col gap-4 pt-6">
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <>

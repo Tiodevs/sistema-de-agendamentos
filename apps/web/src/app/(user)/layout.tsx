@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Logo } from '@/components/logo';
 
 const navItems = [
   { title: 'Início', href: '/', icon: Home },
@@ -75,8 +76,8 @@ export default function UserLayout({ children }: Readonly<{ children: React.Reac
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-14 max-w-lg items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
-            <CalendarDays className="size-5 text-primary" />
-            <span className="text-base font-bold">Agendamentos</span>
+            <Logo size={28} />
+            <span className="text-base font-bold">Sentier</span>
           </Link>
 
           <DropdownMenu>
