@@ -66,8 +66,8 @@ export default function UserLayout({ children }: Readonly<{ children: React.Reac
   }
 
   function handleLogout() {
+    router.replace('/login');
     logout();
-    router.push('/login');
   }
 
   return (

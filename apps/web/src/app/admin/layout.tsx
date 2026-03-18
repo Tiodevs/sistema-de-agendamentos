@@ -191,8 +191,8 @@ export default function AdminLayout({ children }: Readonly<{ children: React.Rea
   }
 
   function handleLogout() {
+    router.replace('/login');
     logout();
-    router.push('/login');
   }
 
   return (

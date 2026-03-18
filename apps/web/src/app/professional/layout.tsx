@@ -176,8 +176,8 @@ export default function ProfessionalLayout({ children }: Readonly<{ children: Re
   }
 
   function handleLogout() {
+    router.replace('/login');
     logout();
-    router.push('/login');
   }
 
   return (
