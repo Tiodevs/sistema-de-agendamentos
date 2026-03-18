@@ -138,3 +138,6 @@ model SpecialDay {
   @@unique([date])
   @@map("special_days")
 }
+
+// Comando migrate
+// npx prisma migrate dev --name init
