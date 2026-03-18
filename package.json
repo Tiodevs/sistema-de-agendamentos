@@ -23,7 +23,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
     "clean": "rm -rf node_modules apps/*/node_modules apps/*/.next apps/*/dist packages/*/node_modules",
-    "prepare": "husky"
+    "prepare": "node -e \"try { require.resolve('husky') } catch(e) { process.exit(0) }\" && husky"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
