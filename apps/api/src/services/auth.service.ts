@@ -98,6 +98,12 @@ export class AuthService {
       throw error;
     }
 
+    // Verificar se o user tem employee vinculado
+    const linkedEmployee = await prisma.employee.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    });
+
     const token = generateToken(user);
 
     return {
@@ -107,6 +113,7 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        employeeId: linkedEmployee?.id || null,
         createdAt: user.createdAt,
       },
       token,
@@ -125,6 +132,7 @@ export class AuthService {
         active: true,
         createdAt: true,
         updatedAt: true,
+        employee: { select: { id: true } },
       },
     });
 
@@ -134,7 +142,10 @@ export class AuthService {
       throw error;
     }
 
-    return user;
+    return {
+      ...user,
+      employeeId: user.employee?.id || null,
+    };
   }
 
   async getClients(search?: string) {

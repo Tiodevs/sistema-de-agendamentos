@@ -21,6 +21,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   appointments Appointment[]
+  employee     Employee?
 
   @@map("users")
 }
@@ -50,6 +51,9 @@ model Employee {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   products     EmployeeProduct[]
   appointments Appointment[]

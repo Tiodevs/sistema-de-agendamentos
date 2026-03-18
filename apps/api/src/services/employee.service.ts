@@ -50,12 +50,16 @@ export class EmployeeService {
       throw error;
     }
 
-    return prisma.employee.create({
+    // Auto-vincular user por email se existir
+    const existingUser = await prisma.user.findUnique({ where: { email: data.email } });
+
+    const employee = await prisma.employee.create({
       data: {
         name: data.name,
         email: data.email,
         phone: data.phone || null,
         avatar: data.avatar || null,
+        ...(existingUser ? { userId: existingUser.id } : {}),
       },
       include: {
         products: {
@@ -67,6 +71,16 @@ export class EmployeeService {
         },
       },
     });
+
+    // Se vinculou ao user, atualizar role para EMPLOYEE
+    if (existingUser && existingUser.role === 'USER') {
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { role: 'EMPLOYEE' },
+      });
+    }
+
+    return employee;
   }
 
   async update(id: string, data: UpdateEmployeeInput) {

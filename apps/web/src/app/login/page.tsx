@@ -35,7 +35,14 @@ export default function LoginPage() {
 
       if (response.data) {
         login(response.data.user, response.data.token);
-        router.push('/');
+        const role = response.data.user.role;
+        if (role === 'ADMIN') {
+          router.push('/admin');
+        } else if (role === 'EMPLOYEE' || response.data.user.employeeId) {
+          router.push('/professional');
+        } else {
+          router.push('/');
+        }
       }
     } catch (err: unknown) {
       const apiError = err as { message?: string; errors?: Array<{ field: string; message: string }> };

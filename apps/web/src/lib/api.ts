@@ -14,6 +14,7 @@ interface AuthData {
     email: string;
     phone: string | null;
     role: string;
+    employeeId: string | null;
     createdAt: string;
   };
   token: string;
@@ -456,6 +457,59 @@ export interface DashboardData {
 
 export async function getDashboardStats(): Promise<ApiResponse<DashboardData>> {
   return apiRequest('/api/dashboard/stats');
+}
+
+/* ─── Professional ─── */
+
+export interface ProfessionalDashboardData {
+  employee: { id: string; name: string; email: string; phone: string | null } | null;
+  overview: {
+    monthAppointments: number;
+    appointmentChange: number;
+    monthRevenue: number;
+    revenueChange: number;
+    weekAppointments: number;
+    completedMonth: number;
+    cancelledMonth: number;
+    totalClients: number;
+  };
+  todayAppointments: Array<{
+    id: string;
+    date: string;
+    endDate: string;
+    status: AppointmentStatus;
+    client: { id: string; name: string; phone: string | null };
+    product: { id: string; name: string; duration: number };
+  }>;
+  statusBreakdown: Record<string, number>;
+  topProducts: Array<{ productId: string; name: string; count: number }>;
+}
+
+export async function getProfessionalDashboard(): Promise<ApiResponse<ProfessionalDashboardData>> {
+  return apiRequest('/api/professional/dashboard');
+}
+
+export async function getProfessionalAppointments(params?: {
+  from?: string;
+  to?: string;
+  status?: string;
+}): Promise<ApiResponse<{ appointments: Appointment[] }>> {
+  const searchParams = new URLSearchParams();
+  if (params?.from) searchParams.set('from', params.from);
+  if (params?.to) searchParams.set('to', params.to);
+  if (params?.status) searchParams.set('status', params.status);
+  const qs = searchParams.toString();
+  return apiRequest(`/api/professional/appointments${qs ? `?${qs}` : ''}`);
+}
+
+export async function updateProfessionalAppointmentStatus(
+  id: string,
+  status: string,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/professional/appointments/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
 }
 
 export type { ApiResponse, AuthData };

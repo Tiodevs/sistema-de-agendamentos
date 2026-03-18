@@ -6,6 +6,7 @@ import { employeeRouter } from './employee.routes';
 import { appointmentRouter } from './appointment.routes';
 import { scheduleRouter } from './schedule.routes';
 import { dashboardRouter } from './dashboard.routes';
+import { professionalRouter } from './professional.routes';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/employees', employeeRouter);
 router.use('/appointments', appointmentRouter);
 router.use('/schedule', scheduleRouter);
 router.use('/dashboard', dashboardRouter);
+router.use('/professional', professionalRouter);
 
 export { router };
