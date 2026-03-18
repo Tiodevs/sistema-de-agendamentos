@@ -51,9 +51,6 @@ export default function UserLayout({ children }: Readonly<{ children: React.Reac
     if (!isLoading && user && user.role === 'ADMIN') {
       router.push('/admin');
     }
-    if (!isLoading && user && (user.role === 'EMPLOYEE' || user.employeeId)) {
-      router.push('/professional');
-    }
   }, [isLoading, isAuthenticated, user, router]);
 
   if (isLoading) {

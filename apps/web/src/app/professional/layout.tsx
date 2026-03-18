@@ -153,8 +153,8 @@ export default function ProfessionalLayout({ children }: Readonly<{ children: Re
       router.push('/login');
       return;
     }
-    // Se não tem employeeId, não é profissional
-    if (!isLoading && user && !user.employeeId) {
+    // Se não é profissional nem admin, redirecionar
+    if (!isLoading && user && user.role !== 'EMPLOYEE' && !user.employeeId) {
       if (user.role === 'ADMIN') {
         router.push('/admin');
       } else {
@@ -171,7 +171,7 @@ export default function ProfessionalLayout({ children }: Readonly<{ children: Re
     );
   }
 
-  if (!isAuthenticated || !user || !user.employeeId) {
+  if (!isAuthenticated || !user || (user.role !== 'EMPLOYEE' && !user.employeeId)) {
     return null;
   }
 
