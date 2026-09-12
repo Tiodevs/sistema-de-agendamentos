@@ -10,20 +10,11 @@ import {
   type Product,
   type ProductPayload,
 } from '@/lib/api';
-import { formatCurrency, formatDuration, formatDate } from '@/lib/format';
+import { formatCurrency, formatDuration } from '@/lib/format';
+import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
 import { toast } from 'sonner';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,27 +22,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Plus,
-  Search,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  Loader2,
-  Package,
-  Clock,
-} from 'lucide-react';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { ProductDialog } from '@/components/admin/product-dialog';
 import { DeleteProductDialog } from '@/components/admin/delete-product-dialog';
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Loader2, Package } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [showInactive, setShowInactive] = useState(true);
-
-  // Dialog states
+  const [visibility, setVisibility] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -59,7 +40,7 @@ export default function ProductsPage() {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const response = await getProducts(showInactive);
+      const response = await getProducts(true);
       if (response.data?.products) {
         setProducts(response.data.products);
       }
@@ -68,16 +49,21 @@ export default function ProductsPage() {
     } finally {
       setLoading(false);
     }
-  }, [showInactive]);
+  }, []);
 
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.description && p.description.toLowerCase().includes(search.toLowerCase())),
-  );
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch =
+      product.name.toLowerCase().includes(search.toLowerCase()) ||
+      Boolean(product.description?.toLowerCase().includes(search.toLowerCase()));
+    if (!matchesSearch) return false;
+    if (visibility === 'ACTIVE') return product.active;
+    if (visibility === 'INACTIVE') return !product.active;
+    return true;
+  });
 
   async function handleCreate(data: ProductPayload) {
     try {
@@ -107,9 +93,7 @@ export default function ProductsPage() {
   async function handleToggle(product: Product) {
     try {
       await toggleProduct(product.id);
-      toast.success(
-        product.active ? 'Produto desativado' : 'Produto ativado',
-      );
+      toast.success(product.active ? 'Produto desativado' : 'Produto ativado');
       await fetchProducts();
     } catch {
       toast.error('Erro ao alterar status');
@@ -129,21 +113,6 @@ export default function ProductsPage() {
     }
   }
 
-  function openCreate() {
-    setEditingProduct(null);
-    setDialogOpen(true);
-  }
-
-  function openEdit(product: Product) {
-    setEditingProduct(product);
-    setDialogOpen(true);
-  }
-
-  function openDelete(product: Product) {
-    setDeletingProduct(product);
-    setDeleteDialogOpen(true);
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -153,161 +122,146 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Produtos</h1>
-          <p className="text-muted-foreground">
-            Gerencie os serviços oferecidos pelo seu negócio.
-          </p>
-        </div>
-        <Button onClick={openCreate}>
-          <Plus className="mr-2 size-4" />
-          Novo Produto
-        </Button>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="Produtos"
+        description="Serviços oferecidos pela agenda."
+        action={
+          <Button
+            className="rounded-full"
+            onClick={() => {
+              setEditingProduct(null);
+              setDialogOpen(true);
+            }}
+          >
+            <Plus className="size-4" />
+            Novo Produto
+          </Button>
+        }
+      />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar produtos..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="show-inactive"
-                checked={showInactive}
-                onCheckedChange={setShowInactive}
-              />
-              <label htmlFor="show-inactive" className="text-sm text-muted-foreground cursor-pointer">
-                Mostrar inativos
-              </label>
-            </div>
+      <section className="admin-surface p-4 sm:p-5">
+        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-1 overflow-x-auto text-sm">
+            {(
+              [
+                ['ALL', 'Todos'],
+                ['ACTIVE', 'Ativos'],
+                ['INACTIVE', 'Inativos'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setVisibility(value)}
+                className={cn(
+                  'rounded-full px-3 py-1.5 font-medium transition-colors',
+                  visibility === value
+                    ? 'bg-[var(--admin-card-muted)] text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar produtos..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="rounded-full pl-10"
+            />
+          </div>
+        </div>
 
-      {/* Table */}
-      {filteredProducts.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Package className="mb-4 size-12 text-muted-foreground/50" />
-            <CardTitle className="mb-1 text-lg">Nenhum produto encontrado</CardTitle>
-            <CardDescription>
+        {filteredProducts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Package className="mb-4 size-12 text-muted-foreground/40" />
+            <h2 className="text-lg font-semibold">Nenhum produto encontrado</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {search
                 ? 'Tente alterar os filtros de busca.'
-                : 'Cadastre seu primeiro produto para começar.'}
-            </CardDescription>
-            {!search && (
-              <Button onClick={openCreate} className="mt-4">
-                <Plus className="mr-2 size-4" />
-                Cadastrar produto
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {filteredProducts.length}{' '}
-              {filteredProducts.length === 1 ? 'produto' : 'produtos'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead className="hidden md:table-cell">Descrição</TableHead>
-                  <TableHead>Preço</TableHead>
-                  <TableHead>Duração</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden lg:table-cell">Criado em</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.map((product) => (
-                  <TableRow key={product.id} className={!product.active ? 'opacity-50' : ''}>
-                    <TableCell className="font-medium">{product.name}</TableCell>
-                    <TableCell className="hidden max-w-[200px] truncate md:table-cell">
-                      <span className="text-muted-foreground">
-                        {product.description || '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {formatCurrency(product.price)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="size-3.5 text-muted-foreground" />
-                        <span className="text-sm">{formatDuration(product.duration)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={product.active ? 'default' : 'secondary'}>
-                        {product.active ? 'Ativo' : 'Inativo'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                      {formatDate(product.createdAt)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8">
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(product)}>
-                            <Pencil className="mr-2 size-4" />
-                            Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleToggle(product)}>
-                            <Switch
-                              checked={product.active}
-                              className="mr-2 scale-75"
-                              tabIndex={-1}
-                            />
-                            {product.active ? 'Desativar' : 'Ativar'}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => openDelete(product)}
-                          >
-                            <Trash2 className="mr-2 size-4" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+                : 'Cadastre o primeiro serviço para começar.'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredProducts.map((product) => {
+              const accent = accentForProduct(product.name);
+              const Icon = iconForProduct(product.name);
+              return (
+                <article
+                  key={product.id}
+                  className={cn(
+                    'relative rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4',
+                    !product.active && 'opacity-60',
+                  )}
+                >
+                  <div className="mb-5 flex items-start justify-between">
+                    <span className="inline-flex items-center rounded-full bg-[var(--admin-chip)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                      {formatDuration(product.duration)}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8 rounded-2xl">
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="rounded-2xl">
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setEditingProduct(product);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleToggle(product)}>
+                          {product.active ? 'Desativar' : 'Ativar'}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => {
+                            setDeletingProduct(product);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <div
+                    className={cn(
+                      'mb-5 flex size-16 items-center justify-center rounded-3xl',
+                      accent.bg,
+                    )}
+                  >
+                    <Icon className={cn('size-8', accent.fg)} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {product.active ? 'Serviço' : 'Inativo'}
+                  </p>
+                  <h2 className="mt-1 font-semibold leading-snug">{product.name}</h2>
+                  <p className="mt-2 text-sm font-medium">{formatCurrency(product.price)}</p>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      {/* Dialogs */}
       <ProductDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         product={editingProduct}
         onSubmit={editingProduct ? handleUpdate : handleCreate}
       />
-
       <DeleteProductDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

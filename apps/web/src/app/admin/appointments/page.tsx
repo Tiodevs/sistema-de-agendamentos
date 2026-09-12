@@ -8,27 +8,12 @@ import {
   type Appointment,
   type AppointmentStatus,
 } from '@/lib/api';
-import { formatCurrency, formatDate } from '@/lib/format';
+import { formatCurrency, formatDate, getInitials } from '@/lib/format';
+import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -45,6 +29,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { StatusBadge } from '@/components/admin/status-badge';
 import {
   Plus,
   Search,
@@ -54,24 +41,7 @@ import {
   Trash2,
   AlertTriangle,
 } from 'lucide-react';
-
-const STATUS_MAP: Record<AppointmentStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  SCHEDULED: { label: 'Agendado', variant: 'outline' },
-  CONFIRMED: { label: 'Confirmado', variant: 'default' },
-  IN_PROGRESS: { label: 'Em andamento', variant: 'default' },
-  COMPLETED: { label: 'Concluído', variant: 'secondary' },
-  CANCELLED: { label: 'Cancelado', variant: 'destructive' },
-  NO_SHOW: { label: 'Não compareceu', variant: 'destructive' },
-};
-
-const STATUS_OPTIONS: AppointmentStatus[] = [
-  'SCHEDULED',
-  'CONFIRMED',
-  'IN_PROGRESS',
-  'COMPLETED',
-  'CANCELLED',
-  'NO_SHOW',
-];
+import { cn } from '@/lib/utils';
 
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
@@ -87,8 +57,6 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-
-  // Delete dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingAppointment, setDeletingAppointment] = useState<Appointment | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -107,19 +75,26 @@ export default function AppointmentsPage() {
   }, [statusFilter]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get('q');
+    if (query) setSearch(query);
+  }, []);
+
+  useEffect(() => {
     fetchAppointments();
   }, [fetchAppointments]);
 
-  const filteredAppointments = appointments.filter((a) =>
-    a.client.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.product.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.employee.name.toLowerCase().includes(search.toLowerCase()),
+  const filteredAppointments = appointments.filter(
+    (appointment) =>
+      appointment.client.name.toLowerCase().includes(search.toLowerCase()) ||
+      appointment.product.name.toLowerCase().includes(search.toLowerCase()) ||
+      appointment.employee.name.toLowerCase().includes(search.toLowerCase()),
   );
 
   async function handleStatusChange(id: string, status: AppointmentStatus) {
     try {
       await updateAppointmentStatus(id, status);
-      toast.success(`Status atualizado para "${STATUS_MAP[status].label}"`);
+      toast.success(`Status atualizado para "${STATUS_CONFIG[status].label}"`);
       await fetchAppointments();
     } catch {
       toast.error('Erro ao atualizar status');
@@ -151,167 +126,156 @@ export default function AppointmentsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Agendamentos</h1>
-          <p className="text-muted-foreground">
-            Gerencie todos os agendamentos do sistema.
-          </p>
-        </div>
-        <Button onClick={() => router.push('/admin/appointments/new')}>
-          <Plus className="mr-2 size-4" />
-          Novo Agendamento
-        </Button>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="Agendamentos"
+        description="Acompanhe e atualize os horários da agenda."
+        action={
+          <Button onClick={() => router.push('/admin/appointments/new')} className="rounded-full">
+            <Plus className="size-4" />
+            Novo Agendamento
+          </Button>
+        }
+      />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por cliente, produto ou profissional..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Todos os status</SelectItem>
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {STATUS_MAP[s].label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <section className="admin-surface p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por cliente, serviço ou profissional..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="rounded-full pl-10"
+            />
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex gap-1 overflow-x-auto text-sm">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ALL')}
+              className={cn(
+                'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                statusFilter === 'ALL'
+                  ? 'bg-[var(--admin-card-muted)] text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Todos
+            </button>
+            {STATUS_OPTIONS.map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(status)}
+                className={cn(
+                  'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                  statusFilter === status
+                    ? 'bg-[var(--admin-card-muted)] text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {STATUS_CONFIG[status].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      {/* Table */}
       {filteredAppointments.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <CalendarDays className="mb-4 size-12 text-muted-foreground/50" />
-            <CardTitle className="mb-1 text-lg">Nenhum agendamento encontrado</CardTitle>
-            <CardDescription>
-              {search || statusFilter !== 'ALL'
-                ? 'Tente alterar os filtros.'
-                : 'Crie seu primeiro agendamento.'}
-            </CardDescription>
-            {!search && statusFilter === 'ALL' && (
-              <Button onClick={() => router.push('/admin/appointments/new')} className="mt-4">
-                <Plus className="mr-2 size-4" />
-                Novo Agendamento
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <section className="admin-surface flex flex-col items-center justify-center px-6 py-16">
+          <CalendarDays className="mb-4 size-12 text-muted-foreground/40" />
+          <h2 className="text-lg font-semibold">Nenhum agendamento encontrado</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {search || statusFilter !== 'ALL'
+              ? 'Tente alterar os filtros.'
+              : 'Crie o primeiro agendamento da agenda.'}
+          </p>
+          {!search && statusFilter === 'ALL' ? (
+            <Button
+              onClick={() => router.push('/admin/appointments/new')}
+              className="mt-5 rounded-full"
+            >
+              <Plus className="size-4" />
+              Novo Agendamento
+            </Button>
+          ) : null}
+        </section>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
+        <section className="admin-surface overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4">
+            <p className="text-sm font-medium">
               {filteredAppointments.length}{' '}
               {filteredAppointments.length === 1 ? 'agendamento' : 'agendamentos'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data / Horário</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead className="hidden md:table-cell">Produto</TableHead>
-                  <TableHead className="hidden sm:table-cell">Profissional</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAppointments.map((appointment) => (
-                  <TableRow key={appointment.id}>
-                    <TableCell>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {formatDate(appointment.date).split(' ')[0]}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="text-sm font-medium">{appointment.client.name}</p>
-                        <p className="text-xs text-muted-foreground hidden md:block">
-                          {appointment.client.email}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className="text-sm">{appointment.product.name}</span>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <span className="text-sm">{appointment.employee.name}</span>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {formatCurrency(appointment.price)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_MAP[appointment.status].variant}>
-                        {STATUS_MAP[appointment.status].label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8">
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {STATUS_OPTIONS.filter((s) => s !== appointment.status).map((s) => (
-                            <DropdownMenuItem
-                              key={s}
-                              onClick={() => handleStatusChange(appointment.id, s)}
-                            >
-                              Marcar como {STATUS_MAP[s].label}
-                            </DropdownMenuItem>
-                          ))}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => {
-                              setDeletingAppointment(appointment);
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="mr-2 size-4" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {filteredAppointments.map((appointment) => (
+              <div key={appointment.id} className="flex items-center gap-3 px-5 py-4">
+                <div className="hidden size-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-[var(--admin-card-muted)] sm:flex">
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatDate(appointment.date).split(' ')[0]}
+                  </span>
+                  <span className="text-sm font-semibold">{formatTime(appointment.date)}</span>
+                </div>
+                <Avatar className="size-10 shrink-0">
+                  <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
+                    {getInitials(appointment.client.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-medium">{appointment.client.name}</p>
+                    <StatusBadge status={appointment.status} />
+                  </div>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {appointment.product.name} · {appointment.employee.name}
+                    <span className="sm:hidden">
+                      {' '}
+                      · {formatTime(appointment.date)}–{formatTime(appointment.endDate)}
+                    </span>
+                  </p>
+                </div>
+                <p className="hidden shrink-0 font-semibold sm:block">
+                  {formatCurrency(appointment.price)}
+                </p>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-9 rounded-2xl">
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="rounded-2xl">
+                    {STATUS_OPTIONS.filter((status) => status !== appointment.status).map(
+                      (status) => (
+                        <DropdownMenuItem
+                          key={status}
+                          onClick={() => handleStatusChange(appointment.id, status)}
+                        >
+                          Marcar como {STATUS_CONFIG[status].label}
+                        </DropdownMenuItem>
+                      ),
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        setDeletingAppointment(appointment);
+                        setDeleteDialogOpen(true);
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                      Excluir
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* Delete Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="rounded-3xl sm:max-w-[425px]">
           <DialogHeader>
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-full bg-destructive/10">
@@ -319,18 +283,13 @@ export default function AppointmentsPage() {
               </div>
               <div>
                 <DialogTitle>Excluir agendamento</DialogTitle>
-                <DialogDescription>
-                  Esta ação não pode ser desfeita.
-                </DialogDescription>
+                <DialogDescription>Esta ação não pode ser desfeita.</DialogDescription>
               </div>
             </div>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Tem certeza que deseja excluir o agendamento de{' '}
-            <strong className="text-foreground">
-              {deletingAppointment?.client.name}
-            </strong>{' '}
-            em{' '}
+            <strong className="text-foreground">{deletingAppointment?.client.name}</strong> em{' '}
             <strong className="text-foreground">
               {deletingAppointment ? formatDate(deletingAppointment.date) : ''}
             </strong>
@@ -339,13 +298,19 @@ export default function AppointmentsPage() {
           <DialogFooter>
             <Button
               variant="outline"
+              className="rounded-full"
               onClick={() => setDeleteDialogOpen(false)}
               disabled={deleteLoading}
             >
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>
-              {deleteLoading && <Loader2 className="mr-2 size-4 animate-spin" />}
+            <Button
+              variant="destructive"
+              className="rounded-full"
+              onClick={handleDelete}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? <Loader2 className="size-4 animate-spin" /> : null}
               Excluir
             </Button>
           </DialogFooter>

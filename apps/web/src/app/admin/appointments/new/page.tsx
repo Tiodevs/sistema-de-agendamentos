@@ -12,7 +12,7 @@ import {
   type Client,
   type AvailabilitySlot,
 } from '@/lib/api';
-import { formatCurrency, formatDuration } from '@/lib/format';
+import { formatCurrency, formatDuration, getInitials } from '@/lib/format';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -46,15 +46,6 @@ const STEP_LABELS: Record<Step, string> = {
   2: 'Profissional',
   3: 'Data e Horário',
 };
-
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
 
 function formatSlotTime(isoString: string): string {
   const date = new Date(isoString);
@@ -120,10 +111,7 @@ export default function NewAppointmentPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [prodRes, clientRes] = await Promise.all([
-          getProducts(false),
-          getClients(),
-        ]);
+        const [prodRes, clientRes] = await Promise.all([getProducts(false), getClients()]);
         if (prodRes.data?.products) setProducts(prodRes.data.products);
         if (clientRes.data?.clients) setClients(clientRes.data.clients);
       } catch {
@@ -243,10 +231,7 @@ export default function NewAppointmentPage() {
     }
   }
 
-  const canGoNext =
-    (step === 1 && selectedProduct) ||
-    (step === 2 && selectedEmployee) ||
-    false;
+  const canGoNext = (step === 1 && selectedProduct) || (step === 2 && selectedEmployee) || false;
 
   const canSubmit = selectedProduct && selectedEmployee && selectedSlot && selectedClient;
 
@@ -261,47 +246,46 @@ export default function NewAppointmentPage() {
   const availableSlots = slots.filter((s) => s.available);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      {/* Header */}
+    <div className="mx-auto max-w-4xl space-y-5">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/admin/appointments')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-2xl"
+          onClick={() => router.push('/admin/appointments')}
+        >
           <ArrowLeft className="size-5" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Novo Agendamento</h1>
-          <p className="text-muted-foreground">
-            Siga as etapas para criar um agendamento.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
+            Novo agendamento
+          </h1>
+          <p className="text-sm text-muted-foreground">Siga as etapas para criar um horário.</p>
         </div>
       </div>
 
-      {/* Stepper */}
-      <div className="flex items-center gap-2">
+      <div className="admin-surface flex items-center gap-2 p-2 sm:p-3">
         {([1, 2, 3] as Step[]).map((s) => (
-          <div key={s} className="flex items-center gap-2">
+          <div key={s} className="flex flex-1 items-center gap-2">
             <div
               className={cn(
                 'flex size-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
-                s < step
+                s <= step
                   ? 'bg-primary text-primary-foreground'
-                  : s === step
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground',
+                  : 'bg-[var(--admin-card-muted)] text-muted-foreground',
               )}
             >
               {s < step ? <Check className="size-4" /> : s}
             </div>
             <span
               className={cn(
-                'text-sm font-medium hidden sm:inline',
+                'hidden text-sm font-medium sm:inline',
                 s === step ? 'text-foreground' : 'text-muted-foreground',
               )}
             >
               {STEP_LABELS[s]}
             </span>
-            {s < 3 && (
-              <Separator className="w-8 lg:w-16" />
-            )}
+            {s < 3 ? <Separator className="hidden flex-1 sm:block" /> : null}
           </div>
         ))}
       </div>
@@ -315,9 +299,7 @@ export default function NewAppointmentPage() {
                 <Package className="size-5" />
                 Selecione o Produto
               </CardTitle>
-              <CardDescription>
-                Escolha o serviço que será agendado.
-              </CardDescription>
+              <CardDescription>Escolha o serviço que será agendado.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -327,7 +309,7 @@ export default function NewAppointmentPage() {
                     type="button"
                     onClick={() => setSelectedProduct(product)}
                     className={cn(
-                      'flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-colors',
+                      'flex flex-col items-start gap-2 rounded-2xl border p-4 text-left transition-colors',
                       selectedProduct?.id === product.id
                         ? 'border-primary bg-primary/5 ring-1 ring-primary'
                         : 'border-border hover:bg-muted/50',
@@ -366,8 +348,7 @@ export default function NewAppointmentPage() {
                 Selecione o Profissional
               </CardTitle>
               <CardDescription>
-                Profissionais disponíveis para{' '}
-                <strong>{selectedProduct?.name}</strong>.
+                Profissionais disponíveis para <strong>{selectedProduct?.name}</strong>.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -386,7 +367,7 @@ export default function NewAppointmentPage() {
                       type="button"
                       onClick={() => setSelectedEmployee(employee)}
                       className={cn(
-                        'flex items-center gap-3 rounded-lg border p-4 text-left transition-colors',
+                        'flex items-center gap-3 rounded-2xl border p-4 text-left transition-colors',
                         selectedEmployee?.id === employee.id
                           ? 'border-primary bg-primary/5 ring-1 ring-primary'
                           : 'border-border hover:bg-muted/50',
@@ -399,9 +380,7 @@ export default function NewAppointmentPage() {
                       </Avatar>
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{employee.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {employee.email}
-                        </p>
+                        <p className="truncate text-xs text-muted-foreground">{employee.email}</p>
                       </div>
                     </button>
                   ))}
@@ -423,7 +402,8 @@ export default function NewAppointmentPage() {
                 Data e Horário
               </CardTitle>
               <CardDescription>
-                {selectedEmployee?.name} — {selectedProduct?.name} ({formatDuration(selectedProduct!.duration)})
+                {selectedEmployee?.name} — {selectedProduct?.name} (
+                {formatDuration(selectedProduct!.duration)})
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -449,7 +429,7 @@ export default function NewAppointmentPage() {
                           type="button"
                           onClick={() => setSelectedDate(day)}
                           className={cn(
-                            'flex min-w-[80px] flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-center transition-colors',
+                            'flex min-w-[80px] flex-col items-center gap-0.5 rounded-2xl border px-3 py-2 text-center transition-colors',
                             isSelected
                               ? 'border-primary bg-primary/10 text-primary'
                               : 'border-border hover:bg-muted/50',
@@ -461,9 +441,7 @@ export default function NewAppointmentPage() {
                           <span className="text-sm font-medium">
                             {formatDateBR(day).slice(0, 5)}
                           </span>
-                          {isToday && (
-                            <span className="text-[10px] text-primary">Hoje</span>
-                          )}
+                          {isToday && <span className="text-[10px] text-primary">Hoje</span>}
                         </button>
                       );
                     })}
@@ -487,12 +465,8 @@ export default function NewAppointmentPage() {
               ) : dayClosed ? (
                 <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-red-500/30 bg-red-500/5 py-8">
                   <CalendarDays className="mb-3 size-8 text-red-400/50" />
-                  <p className="text-sm font-medium text-red-400">
-                    Fechado neste dia
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Feriado ou dia sem funcionamento.
-                  </p>
+                  <p className="text-sm font-medium text-red-400">Fechado neste dia</p>
+                  <p className="text-xs text-muted-foreground">Feriado ou dia sem funcionamento.</p>
                 </div>
               ) : availableSlots.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8">
@@ -504,7 +478,8 @@ export default function NewAppointmentPage() {
               ) : (
                 <div>
                   <p className="mb-2 text-sm text-muted-foreground">
-                    {availableSlots.length} horário{availableSlots.length !== 1 && 's'} disponíve{availableSlots.length !== 1 ? 'is' : 'l'}
+                    {availableSlots.length} horário{availableSlots.length !== 1 && 's'} disponíve
+                    {availableSlots.length !== 1 ? 'is' : 'l'}
                   </p>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                     {availableSlots.map((slot) => (
@@ -513,7 +488,7 @@ export default function NewAppointmentPage() {
                         type="button"
                         onClick={() => setSelectedSlot(slot)}
                         className={cn(
-                          'rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
+                          'rounded-2xl border px-3 py-2.5 text-sm font-medium transition-colors',
                           selectedSlot?.start === slot.start
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-border hover:bg-muted/50',
@@ -604,9 +579,7 @@ export default function NewAppointmentPage() {
                 <>
                   <Separator />
                   <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                    <p className="text-xs font-semibold uppercase text-muted-foreground">
-                      Resumo
-                    </p>
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">Resumo</p>
                     <div className="space-y-1 text-sm">
                       <p>
                         <span className="text-muted-foreground">Produto:</span>{' '}
@@ -622,8 +595,8 @@ export default function NewAppointmentPage() {
                       </p>
                       <p>
                         <span className="text-muted-foreground">Data:</span>{' '}
-                        {formatDateBR(selectedDate)}{' '}
-                        {formatSlotTime(selectedSlot.start)} – {formatSlotTime(selectedSlot.end)}
+                        {formatDateBR(selectedDate)} {formatSlotTime(selectedSlot.start)} –{' '}
+                        {formatSlotTime(selectedSlot.end)}
                       </p>
                       <p className="font-mono font-semibold text-primary">
                         {formatCurrency(selectedProduct!.price)}
@@ -639,20 +612,27 @@ export default function NewAppointmentPage() {
 
       {/* Navigation */}
       <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={goBack} disabled={step === 1}>
-          <ArrowLeft className="mr-2 size-4" />
+        <Button variant="outline" className="rounded-full" onClick={goBack} disabled={step === 1}>
+          <ArrowLeft className="size-4" />
           Voltar
         </Button>
 
         {step < 3 ? (
-          <Button onClick={goNext} disabled={!canGoNext}>
+          <Button className="rounded-full" onClick={goNext} disabled={!canGoNext}>
             Próximo
-            <ArrowRight className="ml-2 size-4" />
+            <ArrowRight className="size-4" />
           </Button>
         ) : (
-          <Button onClick={handleSubmit} disabled={!canSubmit || submitting}>
-            {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
-            <Check className="mr-2 size-4" />
+          <Button
+            className="rounded-full"
+            onClick={handleSubmit}
+            disabled={!canSubmit || submitting}
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Check className="size-4" />
+            )}
             Confirmar Agendamento
           </Button>
         )}

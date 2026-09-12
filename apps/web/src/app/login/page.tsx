@@ -8,7 +8,14 @@ import { loginUser } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, LogIn } from 'lucide-react';
 import { LogoWithText } from '@/components/logo';
@@ -45,7 +52,10 @@ export default function LoginPage() {
         }
       }
     } catch (err: unknown) {
-      const apiError = err as { message?: string; errors?: Array<{ field: string; message: string }> };
+      const apiError = err as {
+        message?: string;
+        errors?: Array<{ field: string; message: string }>;
+      };
       if (apiError.errors) {
         const errors: Record<string, string> = {};
         apiError.errors.forEach((e) => {
@@ -92,9 +102,7 @@ export default function LoginPage() {
                 disabled={isLoading}
                 autoComplete="email"
               />
-              {fieldErrors.email && (
-                <p className="text-sm text-destructive">{fieldErrors.email}</p>
-              )}
+              {fieldErrors.email && <p className="text-sm text-destructive">{fieldErrors.email}</p>}
             </div>
 
             <div className="space-y-2">

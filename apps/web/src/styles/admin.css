@@ -1,0 +1,131 @@
+.admin-theme {
+  --radius: 1.5rem;
+  --admin-accent: #00ddb2;
+  --admin-accent-foreground: #06251f;
+  --admin-rail: #07070a;
+  --admin-panel: oklch(0.185 0.005 285.885);
+  --admin-card: oklch(0.22 0.006 285.885);
+  --admin-card-muted: oklch(0.255 0.006 285.885);
+  --admin-hover: color-mix(in oklch, white 6%, transparent);
+  --admin-chip: color-mix(in oklch, black 22%, transparent);
+  --admin-track: color-mix(in oklch, white 6%, transparent);
+  font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+html:not(.dark) .admin-theme {
+  --admin-panel: oklch(1 0 0);
+  --admin-card: oklch(1 0 0);
+  --admin-card-muted: oklch(0.965 0.004 285.885);
+  --admin-hover: color-mix(in oklch, black 4%, transparent);
+  --admin-chip: color-mix(in oklch, black 8%, transparent);
+  --admin-track: oklch(0.94 0.006 285.885);
+}
+
+.admin-frame {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 480px at 80% -10%, oklch(0.28 0.02 285.885 / 0.5), transparent 55%),
+    linear-gradient(180deg, oklch(0.16 0.006 285.885), var(--background));
+}
+
+html:not(.dark) .admin-frame {
+  background:
+    radial-gradient(
+      1200px 520px at 82% -8%,
+      color-mix(in oklch, var(--admin-accent) 16%, white),
+      transparent 58%
+    ),
+    linear-gradient(180deg, oklch(0.97 0.012 200), oklch(0.96 0.008 285.885));
+}
+
+.admin-panel {
+  background: var(--admin-panel);
+  box-shadow: 0 24px 60px oklch(0 0 0 / 0.28);
+}
+
+html:not(.dark) .admin-panel {
+  box-shadow: 0 18px 50px oklch(0.55 0.03 285.885 / 0.1);
+}
+
+.admin-rail {
+  background: var(--admin-rail);
+  box-shadow: 0 18px 40px oklch(0 0 0 / 0.35);
+}
+
+@media (min-width: 1024px) {
+  .admin-rail {
+    position: sticky;
+    top: 1.25rem;
+    height: calc(100dvh - 2.5rem);
+  }
+}
+
+.admin-surface {
+  background: var(--admin-card);
+  border-radius: 1.5rem;
+}
+
+html:not(.dark) .admin-surface {
+  box-shadow: 0 1px 2px oklch(0.45 0.02 285.885 / 0.04);
+}
+
+.admin-theme [data-slot='card'] {
+  gap: 1.25rem;
+  border: 0;
+  border-radius: 1.5rem;
+  background: var(--admin-card);
+  padding-block: 1.5rem;
+  box-shadow: none;
+}
+
+.admin-theme [data-slot='input'] {
+  height: 2.5rem;
+  border: 0;
+  background: var(--admin-card-muted);
+}
+
+.admin-bar-striped {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--admin-accent),
+    var(--admin-accent) 2px,
+    color-mix(in oklch, var(--admin-accent) 38%, transparent) 2px,
+    color-mix(in oklch, var(--admin-accent) 38%, transparent) 7px
+  );
+}
+
+.admin-muted-striped {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    oklch(1 0 0 / 0.28),
+    oklch(1 0 0 / 0.28) 2px,
+    oklch(1 0 0 / 0.08) 2px,
+    oklch(1 0 0 / 0.08) 7px
+  );
+}
+
+html:not(.dark) .admin-muted-striped {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    oklch(0.62 0.01 285.885 / 0.45),
+    oklch(0.62 0.01 285.885 / 0.45) 2px,
+    oklch(0.62 0.01 285.885 / 0.12) 2px,
+    oklch(0.62 0.01 285.885 / 0.12) 7px
+  );
+}
+
+.admin-mobile-nav {
+  inset: 0.75rem auto 0.75rem 0.75rem !important;
+  height: auto !important;
+  width: min(20.5rem, calc(100vw - 1.5rem)) !important;
+  max-width: none !important;
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 32px;
+  background: var(--admin-rail);
+  padding: 0;
+  color: white;
+  box-shadow: 0 18px 40px oklch(0 0 0 / 0.35);
+}

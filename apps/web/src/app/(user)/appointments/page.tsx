@@ -1,18 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import {
-  getMyAppointments,
-  cancelMyAppointment,
-  type Appointment,
-  type AppointmentStatus,
-} from '@/lib/api';
-import { formatCurrency, formatDuration, formatDate } from '@/lib/format';
+import { getMyAppointments, cancelMyAppointment, type Appointment } from '@/lib/api';
+import { formatCurrency, formatDate, getInitials } from '@/lib/format';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Dialog,
   DialogContent,
@@ -21,48 +16,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  CalendarDays,
-  CalendarPlus,
-  Clock,
-  Loader2,
-  MapPin,
-  User,
-  Package,
-  X,
-  AlertTriangle,
-} from 'lucide-react';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { StatusBadge } from '@/components/admin/status-badge';
+import { CalendarDays, CalendarPlus, Loader2, Search, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const STATUS_CONFIG: Record<
-  AppointmentStatus,
-  { label: string; color: string; bg: string }
-> = {
-  SCHEDULED: { label: 'Agendado', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-  CONFIRMED: { label: 'Confirmado', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-  IN_PROGRESS: { label: 'Em andamento', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-  COMPLETED: { label: 'Concluído', color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-  CANCELLED: { label: 'Cancelado', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-  NO_SHOW: { label: 'Não compareceu', color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20' },
-};
-
-function formatSlotTime(isoString: string): string {
-  const date = new Date(isoString);
-  return date.toLocaleTimeString('pt-BR', {
+function formatTime(isoString: string): string {
+  return new Date(isoString).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
 }
 
-function formatDateLong(isoString: string): string {
-  const date = new Date(isoString);
-  return date.toLocaleDateString('pt-BR', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    timeZone: 'America/Sao_Paulo',
-  });
+function isUpcoming(appointment: Appointment, now: Date) {
+  return (
+    new Date(appointment.date) >= now &&
+    !['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(appointment.status)
+  );
 }
 
 export default function MyAppointmentsPage() {
@@ -72,6 +43,7 @@ export default function MyAppointmentsPage() {
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [search, setSearch] = useState('');
 
   const loadAppointments = useCallback(async () => {
     try {
@@ -84,6 +56,12 @@ export default function MyAppointmentsPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get('q');
+    if (query) setSearch(query);
   }, []);
 
   useEffect(() => {
@@ -107,25 +85,30 @@ export default function MyAppointmentsPage() {
   }
 
   const now = new Date();
-  const upcoming = appointments.filter(
-    (a) => new Date(a.date) >= now && !['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(a.status),
-  );
-  const past = appointments.filter(
-    (a) => new Date(a.date) < now || ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(a.status),
-  );
+  const upcoming = appointments.filter((appointment) => isUpcoming(appointment, now));
+  const past = appointments.filter((appointment) => !isUpcoming(appointment, now));
+  const tabAppointments = activeTab === 'upcoming' ? upcoming : past;
 
-  const displayedAppointments = activeTab === 'upcoming' ? upcoming : past;
+  const displayedAppointments = tabAppointments.filter((appointment) => {
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      appointment.product.name.toLowerCase().includes(query) ||
+      appointment.employee.name.toLowerCase().includes(query)
+    );
+  });
+
+  const cancellingAppointment = appointments.find((appointment) => appointment.id === cancelId);
 
   function canCancel(appointment: Appointment): boolean {
     return (
-      ['SCHEDULED', 'CONFIRMED'].includes(appointment.status) &&
-      new Date(appointment.date) > now
+      ['SCHEDULED', 'CONFIRMED'].includes(appointment.status) && new Date(appointment.date) > now
     );
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-[300px] items-center justify-center">
+      <div className="flex min-h-[400px] items-center justify-center">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -133,183 +116,178 @@ export default function MyAppointmentsPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Meus Agendamentos</h1>
-          <p className="text-sm text-muted-foreground">
-            {upcoming.length} agendamento{upcoming.length !== 1 && 's'} próximo{upcoming.length !== 1 && 's'}
-          </p>
+      <AdminPageHeader
+        title="Meus agendamentos"
+        description={`${upcoming.length} ${upcoming.length === 1 ? 'horário próximo' : 'horários próximos'}.`}
+        action={
+          <Button onClick={() => router.push('/book')} className="rounded-full">
+            <CalendarPlus className="size-4" />
+            Agendar
+          </Button>
+        }
+      />
+
+      <section className="admin-surface p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por serviço ou profissional..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="rounded-full pl-10"
+            />
+          </div>
+          <div className="flex gap-1 overflow-x-auto text-sm">
+            <button
+              type="button"
+              onClick={() => setActiveTab('upcoming')}
+              className={cn(
+                'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                activeTab === 'upcoming'
+                  ? 'bg-[var(--admin-card-muted)] text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Próximos ({upcoming.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('past')}
+              className={cn(
+                'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                activeTab === 'past'
+                  ? 'bg-[var(--admin-card-muted)] text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Histórico ({past.length})
+            </button>
+          </div>
         </div>
-        <Button size="sm" onClick={() => router.push('/book')}>
-          <CalendarPlus className="mr-1.5 size-4" />
-          Agendar
-        </Button>
-      </div>
+      </section>
 
-      {/* Tabs */}
-      <div className="flex rounded-lg border bg-muted/30 p-1">
-        <button
-          onClick={() => setActiveTab('upcoming')}
-          className={cn(
-            'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            activeTab === 'upcoming'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Próximos ({upcoming.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('past')}
-          className={cn(
-            'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            activeTab === 'past'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          Histórico ({past.length})
-        </button>
-      </div>
-
-      {/* Appointments List */}
       {displayedAppointments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16">
-          <CalendarDays className="mb-3 size-12 text-muted-foreground/30" />
-          <p className="mb-1 text-sm font-medium text-muted-foreground">
+        <section className="admin-surface flex flex-col items-center justify-center px-6 py-16">
+          <CalendarDays className="mb-4 size-12 text-muted-foreground/40" />
+          <h2 className="text-lg font-semibold">
             {activeTab === 'upcoming'
               ? 'Nenhum agendamento próximo'
               : 'Nenhum agendamento no histórico'}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {search
+              ? 'Tente alterar a busca.'
+              : activeTab === 'upcoming'
+                ? 'Reserve um horário para aparecer aqui.'
+                : 'Seus horários anteriores vão aparecer nesta lista.'}
           </p>
-          {activeTab === 'upcoming' && (
-            <Button
-              variant="link"
-              size="sm"
-              className="mt-2"
-              onClick={() => router.push('/book')}
-            >
+          {activeTab === 'upcoming' && !search ? (
+            <Button onClick={() => router.push('/book')} className="mt-5 rounded-full">
+              <CalendarPlus className="size-4" />
               Fazer um agendamento
             </Button>
-          )}
-        </div>
+          ) : null}
+        </section>
       ) : (
-        <div className="space-y-3">
-          {displayedAppointments.map((appointment) => {
-            const statusConfig = STATUS_CONFIG[appointment.status];
-            return (
-              <Card
-                key={appointment.id}
-                className="overflow-hidden transition-shadow hover:shadow-md"
-              >
-                <CardContent className="p-0">
-                  {/* Status bar */}
-                  <div
-                    className={cn(
-                      'flex items-center justify-between border-b px-4 py-2',
-                      statusConfig.bg,
-                    )}
+        <section className="admin-surface overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4">
+            <p className="text-sm font-medium">
+              {displayedAppointments.length}{' '}
+              {displayedAppointments.length === 1 ? 'agendamento' : 'agendamentos'}
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {displayedAppointments.map((appointment) => (
+              <div key={appointment.id} className="flex items-center gap-3 px-5 py-4">
+                <div className="hidden size-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-[var(--admin-card-muted)] sm:flex">
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatDate(appointment.date).split(' ')[0]}
+                  </span>
+                  <span className="text-sm font-semibold">{formatTime(appointment.date)}</span>
+                </div>
+                <Avatar className="size-10 shrink-0">
+                  <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
+                    {getInitials(appointment.employee.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-medium">{appointment.product.name}</p>
+                    <StatusBadge status={appointment.status} />
+                  </div>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {appointment.employee.name}
+                    <span className="sm:hidden">
+                      {' '}
+                      · {formatTime(appointment.date)}–{formatTime(appointment.endDate)}
+                    </span>
+                    {appointment.notes ? ` · ${appointment.notes}` : ''}
+                  </p>
+                </div>
+                <p className="hidden shrink-0 font-semibold sm:block">
+                  {formatCurrency(appointment.price)}
+                </p>
+                {canCancel(appointment) ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setCancelId(appointment.id)}
                   >
-                    <span className={cn('text-xs font-semibold', statusConfig.color)}>
-                      {statusConfig.label}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {formatDate(appointment.createdAt)}
-                    </span>
-                  </div>
-
-                  <div className="space-y-3 p-4">
-                    {/* Service info */}
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                        <Package className="size-5 text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold">{appointment.product.name}</p>
-                        <p className="font-mono text-sm text-primary">
-                          {formatCurrency(appointment.price)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Details */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
-                        <CalendarDays className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs">
-                          {formatDateLong(appointment.date)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
-                        <Clock className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs">
-                          {formatSlotTime(appointment.date)} – {formatSlotTime(appointment.endDate)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Professional */}
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <User className="size-3.5" />
-                      <span>{appointment.employee.name}</span>
-                    </div>
-
-                    {/* Notes */}
-                    {appointment.notes && (
-                      <p className="text-xs text-muted-foreground italic">
-                        &ldquo;{appointment.notes}&rdquo;
-                      </p>
-                    )}
-
-                    {/* Cancel button */}
-                    {canCancel(appointment) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-400"
-                        onClick={() => setCancelId(appointment.id)}
-                      >
-                        <X className="mr-1.5 size-3.5" />
-                        Cancelar agendamento
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                    Cancelar
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* Cancel Dialog */}
       <Dialog open={!!cancelId} onOpenChange={() => setCancelId(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="rounded-3xl sm:max-w-[425px]">
           <DialogHeader>
-            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-red-500/10">
-              <AlertTriangle className="size-6 text-red-400" />
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-full bg-destructive/10">
+                <AlertTriangle className="size-5 text-destructive" />
+              </div>
+              <div>
+                <DialogTitle>Cancelar agendamento</DialogTitle>
+                <DialogDescription>Esta ação não pode ser desfeita.</DialogDescription>
+              </div>
             </div>
-            <DialogTitle className="text-center">Cancelar agendamento?</DialogTitle>
-            <DialogDescription className="text-center">
-              Esta ação não pode ser desfeita. O horário ficará disponível para outros clientes.
-            </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button
-              variant="destructive"
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="w-full"
-            >
-              {cancelling && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Sim, cancelar
-            </Button>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja cancelar{' '}
+            <strong className="text-foreground">{cancellingAppointment?.product.name}</strong>
+            {cancellingAppointment ? (
+              <>
+                {' '}
+                em{' '}
+                <strong className="text-foreground">
+                  {formatDate(cancellingAppointment.date)}
+                </strong>
+              </>
+            ) : null}
+            ? O horário ficará disponível para outros clientes.
+          </p>
+          <DialogFooter>
             <Button
               variant="outline"
+              className="rounded-full"
               onClick={() => setCancelId(null)}
               disabled={cancelling}
-              className="w-full"
             >
-              Manter agendamento
+              Manter
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-full"
+              onClick={handleCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? <Loader2 className="size-4 animate-spin" /> : null}
+              Cancelar horário
             </Button>
           </DialogFooter>
         </DialogContent>

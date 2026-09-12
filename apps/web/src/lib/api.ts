@@ -20,10 +20,7 @@ interface AuthData {
   token: string;
 }
 
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-): Promise<ApiResponse<T>> {
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
 
   const config: RequestInit = {
@@ -111,7 +108,9 @@ export interface ProductPayload {
   duration: number;
 }
 
-export async function getProducts(includeInactive = false): Promise<ApiResponse<{ products: Product[] }>> {
+export async function getProducts(
+  includeInactive = false,
+): Promise<ApiResponse<{ products: Product[] }>> {
   const query = includeInactive ? '?includeInactive=true' : '';
   return apiRequest(`/api/products${query}`);
 }
@@ -120,14 +119,19 @@ export async function getProduct(id: string): Promise<ApiResponse<{ product: Pro
   return apiRequest(`/api/products/${id}`);
 }
 
-export async function createProduct(body: ProductPayload): Promise<ApiResponse<{ product: Product }>> {
+export async function createProduct(
+  body: ProductPayload,
+): Promise<ApiResponse<{ product: Product }>> {
   return apiRequest('/api/products', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function updateProduct(id: string, body: Partial<ProductPayload>): Promise<ApiResponse<{ product: Product }>> {
+export async function updateProduct(
+  id: string,
+  body: Partial<ProductPayload>,
+): Promise<ApiResponse<{ product: Product }>> {
   return apiRequest(`/api/products/${id}`, {
     method: 'PUT',
     body: JSON.stringify(body),
@@ -178,7 +182,9 @@ export interface EmployeePayload {
   avatar?: string;
 }
 
-export async function getEmployees(includeInactive = false): Promise<ApiResponse<{ employees: Employee[] }>> {
+export async function getEmployees(
+  includeInactive = false,
+): Promise<ApiResponse<{ employees: Employee[] }>> {
   const query = includeInactive ? '?includeInactive=true' : '';
   return apiRequest(`/api/employees${query}`);
 }
@@ -187,14 +193,19 @@ export async function getEmployee(id: string): Promise<ApiResponse<{ employee: E
   return apiRequest(`/api/employees/${id}`);
 }
 
-export async function createEmployee(body: EmployeePayload): Promise<ApiResponse<{ employee: Employee }>> {
+export async function createEmployee(
+  body: EmployeePayload,
+): Promise<ApiResponse<{ employee: Employee }>> {
   return apiRequest('/api/employees', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function updateEmployee(id: string, body: Partial<EmployeePayload>): Promise<ApiResponse<{ employee: Employee }>> {
+export async function updateEmployee(
+  id: string,
+  body: Partial<EmployeePayload>,
+): Promise<ApiResponse<{ employee: Employee }>> {
   return apiRequest(`/api/employees/${id}`, {
     method: 'PUT',
     body: JSON.stringify(body),
@@ -225,7 +236,13 @@ export async function assignEmployeeProducts(
 
 /* ─── Appointments ─── */
 
-export type AppointmentStatus = 'SCHEDULED' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+export type AppointmentStatus =
+  | 'SCHEDULED'
+  | 'CONFIRMED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'NO_SHOW';
 
 export interface Appointment {
   id: string;
@@ -281,11 +298,15 @@ export async function getAppointments(filters?: {
   return apiRequest(`/api/appointments${query}`);
 }
 
-export async function getAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+export async function getAppointment(
+  id: string,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
   return apiRequest(`/api/appointments/${id}`);
 }
 
-export async function createAppointment(body: AppointmentPayload): Promise<ApiResponse<{ appointment: Appointment }>> {
+export async function createAppointment(
+  body: AppointmentPayload,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
   return apiRequest('/api/appointments', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -293,7 +314,9 @@ export async function createAppointment(body: AppointmentPayload): Promise<ApiRe
 }
 
 /** Usuário cria agendamento para si mesmo (clientId inferido do token) */
-export async function bookAppointment(body: Omit<AppointmentPayload, 'clientId'>): Promise<ApiResponse<{ appointment: Appointment }>> {
+export async function bookAppointment(
+  body: Omit<AppointmentPayload, 'clientId'>,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
   return apiRequest('/api/appointments/book', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -301,7 +324,9 @@ export async function bookAppointment(body: Omit<AppointmentPayload, 'clientId'>
 }
 
 /** Listar apenas os agendamentos do usuário autenticado */
-export async function getMyAppointments(status?: string): Promise<ApiResponse<{ appointments: Appointment[] }>> {
+export async function getMyAppointments(
+  status?: string,
+): Promise<ApiResponse<{ appointments: Appointment[] }>> {
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   const query = params.toString() ? `?${params.toString()}` : '';
@@ -309,7 +334,9 @@ export async function getMyAppointments(status?: string): Promise<ApiResponse<{ 
 }
 
 /** Usuário cancela seu próprio agendamento */
-export async function cancelMyAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+export async function cancelMyAppointment(
+  id: string,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
   return apiRequest(`/api/appointments/${id}/cancel`, {
     method: 'PATCH',
   });
@@ -325,7 +352,9 @@ export async function updateAppointmentStatus(
   });
 }
 
-export async function deleteAppointment(id: string): Promise<ApiResponse<{ appointment: Appointment }>> {
+export async function deleteAppointment(
+  id: string,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
   return apiRequest(`/api/appointments/${id}`, {
     method: 'DELETE',
   });
@@ -385,7 +414,9 @@ export async function getBusinessHours(): Promise<ApiResponse<{ hours: BusinessH
   return apiRequest('/api/schedule/business-hours');
 }
 
-export async function updateAllBusinessHours(hours: BusinessHourPayload[]): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
+export async function updateAllBusinessHours(
+  hours: BusinessHourPayload[],
+): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
   return apiRequest('/api/schedule/business-hours', {
     method: 'PUT',
     body: JSON.stringify({ hours }),
@@ -396,14 +427,19 @@ export async function getSpecialDays(): Promise<ApiResponse<{ days: SpecialDay[]
   return apiRequest('/api/schedule/special-days');
 }
 
-export async function createSpecialDay(body: SpecialDayPayload): Promise<ApiResponse<{ day: SpecialDay }>> {
+export async function createSpecialDay(
+  body: SpecialDayPayload,
+): Promise<ApiResponse<{ day: SpecialDay }>> {
   return apiRequest('/api/schedule/special-days', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function updateSpecialDay(id: string, body: Partial<SpecialDayPayload>): Promise<ApiResponse<{ day: SpecialDay }>> {
+export async function updateSpecialDay(
+  id: string,
+  body: Partial<SpecialDayPayload>,
+): Promise<ApiResponse<{ day: SpecialDay }>> {
   return apiRequest(`/api/schedule/special-days/${id}`, {
     method: 'PUT',
     body: JSON.stringify(body),
@@ -453,6 +489,16 @@ export interface DashboardData {
   }>;
   topProducts: Array<{ productId: string; name: string; count: number }>;
   topEmployees: Array<{ employeeId: string; name: string; count: number }>;
+  timeSpent?: {
+    totalMinutes: number;
+    completedMinutes: number;
+    scheduledMinutes: number;
+  };
+  weeklyActivity?: Array<{
+    start: string;
+    completedMinutes: number;
+    scheduledMinutes: number;
+  }>;
 }
 
 export async function getDashboardStats(): Promise<ApiResponse<DashboardData>> {

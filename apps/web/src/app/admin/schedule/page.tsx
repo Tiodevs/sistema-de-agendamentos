@@ -40,6 +40,7 @@ import {
   PartyPopper,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
 
 function formatDateBR(dateStr: string): string {
   const date = new Date(dateStr + 'T12:00:00');
@@ -77,10 +78,7 @@ export default function SchedulePage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [hoursRes, daysRes] = await Promise.all([
-        getBusinessHours(),
-        getSpecialDays(),
-      ]);
+      const [hoursRes, daysRes] = await Promise.all([getBusinessHours(), getSpecialDays()]);
       if (hoursRes.data?.hours) {
         setHours(hoursRes.data.hours);
         setEditHours(
@@ -147,7 +145,14 @@ export default function SchedulePage() {
       });
       toast.success('Dia especial criado com sucesso!');
       setShowNewDay(false);
-      setNewDay({ date: '', title: '', description: '', isClosed: true, openTime: '08:00', closeTime: '18:00' });
+      setNewDay({
+        date: '',
+        title: '',
+        description: '',
+        isClosed: true,
+        openTime: '08:00',
+        closeTime: '18:00',
+      });
       loadData();
     } catch (err: unknown) {
       const error = err as { message?: string };
@@ -173,14 +178,16 @@ export default function SchedulePage() {
     }
   }
 
-  const hasChanges = JSON.stringify(editHours) !== JSON.stringify(
-    hours.map((h) => ({
-      dayOfWeek: h.dayOfWeek,
-      openTime: h.openTime,
-      closeTime: h.closeTime,
-      isClosed: h.isClosed,
-    })),
-  );
+  const hasChanges =
+    JSON.stringify(editHours) !==
+    JSON.stringify(
+      hours.map((h) => ({
+        dayOfWeek: h.dayOfWeek,
+        openTime: h.openTime,
+        closeTime: h.closeTime,
+        isClosed: h.isClosed,
+      })),
+    );
 
   if (loading) {
     return (
@@ -190,46 +197,46 @@ export default function SchedulePage() {
     );
   }
 
-  const upcomingDays = specialDays.filter((d) => new Date(d.date) >= new Date(new Date().toISOString().split('T')[0]));
-  const pastDays = specialDays.filter((d) => new Date(d.date) < new Date(new Date().toISOString().split('T')[0]));
+  const upcomingDays = specialDays.filter(
+    (d) => new Date(d.date) >= new Date(new Date().toISOString().split('T')[0]),
+  );
+  const pastDays = specialDays.filter(
+    (d) => new Date(d.date) < new Date(new Date().toISOString().split('T')[0]),
+  );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Horários e Feriados</h1>
-        <p className="text-muted-foreground">
-          Configure os horários de funcionamento e dias especiais.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="Horários e feriados"
+        description="Expediente da semana e dias com regra especial."
+      />
 
-      {/* Tabs */}
-      <div className="flex rounded-lg border bg-muted/30 p-1">
+      <div className="admin-surface flex gap-1 p-1.5">
         <button
           onClick={() => setActiveTab('hours')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-colors',
+            'flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-colors',
             activeTab === 'hours'
-              ? 'bg-background text-foreground shadow-sm'
+              ? 'bg-[var(--admin-card-muted)] text-foreground'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
           <Clock className="size-4" />
-          Horários de Funcionamento
+          Funcionamento
         </button>
         <button
           onClick={() => setActiveTab('special')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-colors',
+            'flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-colors',
             activeTab === 'special'
-              ? 'bg-background text-foreground shadow-sm'
+              ? 'bg-[var(--admin-card-muted)] text-foreground'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
           <PartyPopper className="size-4" />
-          Dias Especiais
+          Dias especiais
           {specialDays.length > 0 && (
-            <Badge variant="secondary" className="ml-1 text-xs">
+            <Badge variant="secondary" className="rounded-full text-xs">
               {specialDays.length}
             </Badge>
           )}
@@ -245,19 +252,27 @@ export default function SchedulePage() {
               Horários de Funcionamento
             </CardTitle>
             <CardDescription>
-              Defina o horário de abertura e fechamento para cada dia da semana.
-              Os clientes só poderão agendar dentro desses horários.
+              Defina o horário de abertura e fechamento para cada dia da semana. Os clientes só
+              poderão agendar dentro desses horários.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-1">
             {editHours.map((hour, i) => {
-              const dayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+              const dayNames = [
+                'Domingo',
+                'Segunda-feira',
+                'Terça-feira',
+                'Quarta-feira',
+                'Quinta-feira',
+                'Sexta-feira',
+                'Sábado',
+              ];
               const dayAbbr = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
               return (
                 <div
                   key={hour.dayOfWeek}
                   className={cn(
-                    'flex items-center gap-4 rounded-lg border px-4 py-3 transition-colors',
+                    'flex items-center gap-4 rounded-2xl border px-4 py-3 transition-colors',
                     hour.isClosed ? 'bg-muted/30 border-dashed' : 'border-border',
                   )}
                 >
@@ -320,7 +335,11 @@ export default function SchedulePage() {
               <p className="text-xs text-muted-foreground">
                 {hasChanges ? '⚠️ Alterações não salvas' : '✅ Tudo salvo'}
               </p>
-              <Button onClick={handleSaveHours} disabled={!hasChanges || saving}>
+              <Button
+                onClick={handleSaveHours}
+                disabled={!hasChanges || saving}
+                className="rounded-full"
+              >
                 {saving ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : (
@@ -343,8 +362,8 @@ export default function SchedulePage() {
                 Cadastre feriados nacionais, recesso, ou dias com horário diferenciado.
               </p>
             </div>
-            <Button onClick={() => setShowNewDay(true)}>
-              <Plus className="mr-2 size-4" />
+            <Button onClick={() => setShowNewDay(true)} className="rounded-full">
+              <Plus className="size-4" />
               Novo Dia
             </Button>
           </div>
@@ -361,7 +380,9 @@ export default function SchedulePage() {
                     key={day.id}
                     className={cn(
                       'flex items-center gap-4 rounded-lg border px-4 py-3',
-                      day.isClosed ? 'border-red-500/20 bg-red-500/5' : 'border-yellow-500/20 bg-yellow-500/5',
+                      day.isClosed
+                        ? 'border-red-500/20 bg-red-500/5'
+                        : 'border-yellow-500/20 bg-yellow-500/5',
                     )}
                   >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-background">
@@ -449,7 +470,8 @@ export default function SchedulePage() {
                 Nenhum dia especial cadastrado
               </p>
               <p className="text-xs text-muted-foreground">
-                Clique em &quot;Novo Dia&quot; para adicionar feriados ou dias com horário diferenciado.
+                Clique em &quot;Novo Dia&quot; para adicionar feriados ou dias com horário
+                diferenciado.
               </p>
             </div>
           )}
@@ -560,11 +582,21 @@ export default function SchedulePage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button variant="destructive" onClick={handleDeleteDay} disabled={deleting} className="w-full">
+            <Button
+              variant="destructive"
+              onClick={handleDeleteDay}
+              disabled={deleting}
+              className="w-full"
+            >
               {deleting && <Loader2 className="mr-2 size-4 animate-spin" />}
               Sim, excluir
             </Button>
-            <Button variant="outline" onClick={() => setDeleteId(null)} disabled={deleting} className="w-full">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteId(null)}
+              disabled={deleting}
+              className="w-full"
+            >
               Cancelar
             </Button>
           </DialogFooter>

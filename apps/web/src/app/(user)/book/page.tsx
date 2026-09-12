@@ -10,17 +10,17 @@ import {
   type Employee,
   type AvailabilitySlot,
 } from '@/lib/api';
-import { formatCurrency, formatDuration } from '@/lib/format';
+import { formatCurrency, formatDuration, getInitials } from '@/lib/format';
+import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import {
   ArrowLeft,
   ArrowRight,
@@ -32,7 +32,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -44,18 +43,8 @@ const STEP_LABELS: Record<Step, string> = {
   3: 'Horário',
 };
 
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
-
 function formatSlotTime(isoString: string): string {
-  const date = new Date(isoString);
-  return date.toLocaleTimeString('pt-BR', {
+  return new Date(isoString).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
@@ -68,14 +57,14 @@ function formatDateBR(dateStr: string): string {
 }
 
 function getDayName(dateStr: string): string {
-  const date = new Date(dateStr + 'T12:00:00');
+  const date = new Date(`${dateStr}T12:00:00`);
   return date.toLocaleDateString('pt-BR', { weekday: 'short' });
 }
 
 function getNextDays(count: number, startOffset = 0): string[] {
   const days: string[] = [];
   const today = new Date();
-  for (let i = startOffset; i < startOffset + count; i++) {
+  for (let i = startOffset; i < startOffset + count; i += 1) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     const yyyy = d.getFullYear();
@@ -92,25 +81,21 @@ export default function BookPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Data
   const [products, setProducts] = useState<Product[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
 
-  // Selections
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [notes, setNotes] = useState('');
 
-  // Calendar offset
   const [dayOffset, setDayOffset] = useState(0);
-  const visibleDays = getNextDays(5, dayOffset);
+  const visibleDays = getNextDays(7, dayOffset);
 
-  // Load products
   useEffect(() => {
     async function loadProducts() {
       try {
@@ -125,7 +110,6 @@ export default function BookPage() {
     loadProducts();
   }, []);
 
-  // Load employees when product is selected
   useEffect(() => {
     if (!selectedProduct) return;
     async function loadEmployees() {
@@ -144,7 +128,6 @@ export default function BookPage() {
     loadEmployees();
   }, [selectedProduct]);
 
-  // Load slots when employee + date are selected
   const fetchSlots = useCallback(async (employeeId: string, productId: string, date: string) => {
     setSlotsLoading(true);
     setSelectedSlot(null);
@@ -170,7 +153,6 @@ export default function BookPage() {
     }
   }, [selectedEmployee, selectedProduct, selectedDate, fetchSlots]);
 
-  // Set first available date when entering step 3
   useEffect(() => {
     if (step === 3 && !selectedDate) {
       const today = new Date();
@@ -214,7 +196,7 @@ export default function BookPage() {
         date: selectedSlot.start,
         notes: notes.trim() || undefined,
       });
-      toast.success('Agendamento realizado com sucesso! 🎉');
+      toast.success('Agendamento realizado com sucesso');
       router.push('/appointments');
     } catch (err: unknown) {
       const error = err as { message?: string };
@@ -224,271 +206,256 @@ export default function BookPage() {
     }
   }
 
-  const canGoNext =
-    (step === 1 && selectedProduct) ||
-    (step === 2 && selectedEmployee) ||
-    false;
-
+  const canGoNext = (step === 1 && selectedProduct) || (step === 2 && selectedEmployee) || false;
   const canSubmit = selectedProduct && selectedEmployee && selectedSlot;
 
   if (loading) {
     return (
-      <div className="flex min-h-[300px] items-center justify-center">
+      <div className="flex min-h-[400px] items-center justify-center">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  const availableSlots = slots.filter((s) => s.available);
+  const availableSlots = slots.filter((slot) => slot.available);
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Novo Agendamento</h1>
-        <p className="text-sm text-muted-foreground">
-          Escolha o serviço, profissional e horário.
-        </p>
-      </div>
+    <div className="mx-auto max-w-4xl space-y-5">
+      <AdminPageHeader
+        title="Novo agendamento"
+        description="Escolha o serviço, o profissional e o horário."
+      />
 
-      {/* Stepper */}
-      <div className="flex items-center gap-1.5">
+      <div className="admin-surface flex items-center gap-2 p-2 sm:p-3">
         {([1, 2, 3] as Step[]).map((s) => (
-          <div key={s} className="flex flex-1 items-center gap-1.5">
-            <div className="flex flex-1 flex-col items-center gap-1">
-              <div
-                className={cn(
-                  'flex size-8 items-center justify-center rounded-full text-xs font-semibold transition-colors',
-                  s < step
-                    ? 'bg-primary text-primary-foreground'
-                    : s === step
-                      ? 'bg-primary text-primary-foreground ring-4 ring-primary/20'
-                      : 'bg-muted text-muted-foreground',
-                )}
-              >
-                {s < step ? <Check className="size-4" /> : s}
-              </div>
-              <span
-                className={cn(
-                  'text-[11px] font-medium',
-                  s === step ? 'text-primary' : 'text-muted-foreground',
-                )}
-              >
-                {STEP_LABELS[s]}
-              </span>
+          <div key={s} className="flex flex-1 items-center gap-2">
+            <div
+              className={cn(
+                'flex size-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
+                s <= step
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-[var(--admin-card-muted)] text-muted-foreground',
+              )}
+            >
+              {s < step ? <Check className="size-4" /> : s}
             </div>
-            {s < 3 && (
-              <div
-                className={cn(
-                  'mb-5 h-0.5 flex-1 rounded-full transition-colors',
-                  s < step ? 'bg-primary' : 'bg-muted',
-                )}
-              />
-            )}
+            <span
+              className={cn(
+                'hidden text-sm font-medium sm:inline',
+                s === step ? 'text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              {STEP_LABELS[s]}
+            </span>
+            {s < 3 ? <Separator className="hidden flex-1 sm:block" /> : null}
           </div>
         ))}
       </div>
 
-      {/* Step 1: Select Product */}
-      {step === 1 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <Package className="size-4" />
-            Qual serviço você deseja?
+      {step === 1 ? (
+        <section className="admin-surface p-5 sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <Package className="size-5" />
+            <div>
+              <h2 className="font-semibold">Qual serviço você deseja?</h2>
+              <p className="text-sm text-muted-foreground">Toque em um serviço para continuar.</p>
+            </div>
           </div>
-          <div className="grid gap-3">
-            {products.map((product) => (
-              <button
-                key={product.id}
-                type="button"
-                onClick={() => setSelectedProduct(product)}
-                className={cn(
-                  'flex w-full flex-col gap-2 rounded-xl border p-4 text-left transition-all active:scale-[0.98]',
-                  selectedProduct?.id === product.id
-                    ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
-                    : 'border-border hover:bg-muted/50',
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold">{product.name}</span>
-                  <Badge variant="secondary" className="font-mono text-primary">
-                    {formatCurrency(product.price)}
-                  </Badge>
-                </div>
-                {product.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {product.description}
-                  </p>
-                )}
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock className="size-3.5" />
-                  {formatDuration(product.duration)}
-                </div>
-              </button>
-            ))}
-            {products.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Package className="mb-3 size-10 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">
-                  Nenhum serviço disponível no momento.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Select Employee */}
-      {step === 2 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <User className="size-4" />
-            Escolha o profissional
-          </div>
-          {selectedProduct && (
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-              <Package className="size-3.5 text-primary" />
-              <span className="text-sm">{selectedProduct.name}</span>
-              <span className="text-xs text-muted-foreground">
-                · {formatDuration(selectedProduct.duration)}
-              </span>
+          {products.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
+              <Package className="mb-3 size-10 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Nenhum serviço disponível no momento.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {products.map((product) => {
+                const accent = accentForProduct(product.name);
+                const Icon = iconForProduct(product.name);
+                const selected = selectedProduct?.id === product.id;
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => setSelectedProduct(product)}
+                    className={cn(
+                      'rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
+                      selected && 'ring-2 ring-[var(--admin-accent)]',
+                    )}
+                  >
+                    <div className="mb-5 flex items-start justify-between gap-3">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-chip)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                        {formatDuration(product.duration)}
+                      </span>
+                      <span className="text-sm font-semibold">{formatCurrency(product.price)}</span>
+                    </div>
+                    <div
+                      className={cn(
+                        'mb-5 flex size-16 items-center justify-center rounded-3xl',
+                        accent.bg,
+                      )}
+                    >
+                      <Icon className={cn('size-8', accent.fg)} />
+                    </div>
+                    <p className="font-semibold leading-snug">{product.name}</p>
+                    {product.description ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {product.description}
+                      </p>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           )}
+        </section>
+      ) : null}
+
+      {step === 2 ? (
+        <section className="admin-surface p-5 sm:p-6">
+          <div className="mb-5 flex items-center gap-2">
+            <User className="size-5" />
+            <div>
+              <h2 className="font-semibold">Escolha o profissional</h2>
+              <p className="text-sm text-muted-foreground">
+                Disponíveis para {selectedProduct?.name}.
+              </p>
+            </div>
+          </div>
           {employees.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <User className="mb-3 size-10 text-muted-foreground/50" />
+            <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
+              <User className="mb-3 size-10 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">
                 Nenhum profissional disponível para este serviço.
               </p>
             </div>
           ) : (
-            <div className="grid gap-3">
-              {employees.map((employee) => (
-                <button
-                  key={employee.id}
-                  type="button"
-                  onClick={() => setSelectedEmployee(employee)}
-                  className={cn(
-                    'flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all active:scale-[0.98]',
-                    selectedEmployee?.id === employee.id
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/30'
-                      : 'border-border hover:bg-muted/50',
-                  )}
-                >
-                  <Avatar className="size-12">
-                    <AvatarFallback className="text-sm">
-                      {getInitials(employee.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">{employee.name}</p>
-                    {employee.phone && (
-                      <p className="text-sm text-muted-foreground">{employee.phone}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {employees.map((employee) => {
+                const selected = selectedEmployee?.id === employee.id;
+                return (
+                  <button
+                    key={employee.id}
+                    type="button"
+                    onClick={() => setSelectedEmployee(employee)}
+                    className={cn(
+                      'flex items-center gap-3 rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
+                      selected && 'ring-2 ring-[var(--admin-accent)]',
                     )}
-                  </div>
-                  {selectedEmployee?.id === employee.id && (
-                    <div className="flex size-6 items-center justify-center rounded-full bg-primary">
-                      <Check className="size-3.5 text-primary-foreground" />
+                  >
+                    <Avatar className="size-12">
+                      <AvatarFallback className="bg-[var(--admin-chip)] text-sm">
+                        {getInitials(employee.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">{employee.name}</p>
+                      {employee.phone ? (
+                        <p className="text-sm text-muted-foreground">{employee.phone}</p>
+                      ) : null}
                     </div>
-                  )}
-                </button>
-              ))}
+                    {selected ? (
+                      <div className="flex size-7 items-center justify-center rounded-full bg-[var(--admin-accent)] text-[var(--admin-accent-foreground)]">
+                        <Check className="size-3.5" />
+                      </div>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           )}
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {/* Step 3: Select Date & Time */}
-      {step === 3 && (
-        <div className="space-y-4">
-          {/* Selected info */}
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-            <CalendarDays className="size-3.5 text-primary" />
-            <span className="text-sm">
-              {selectedProduct?.name} · {selectedEmployee?.name}
-            </span>
-          </div>
-
-          {/* Day selector */}
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-muted-foreground">Escolha o dia</span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={() => setDayOffset(Math.max(0, dayOffset - 5))}
-                  disabled={dayOffset === 0}
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-7"
-                  onClick={() => setDayOffset(dayOffset + 5)}
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
+      {step === 3 ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <section className="admin-surface p-5 sm:p-6 lg:col-span-2">
+            <div className="mb-5 flex items-center gap-2">
+              <CalendarDays className="size-5" />
+              <div>
+                <h2 className="font-semibold">Data e horário</h2>
+                <p className="text-sm text-muted-foreground">
+                  {selectedEmployee?.name} · {selectedProduct?.name}
+                </p>
               </div>
             </div>
-            <ScrollArea className="w-full">
-              <div className="flex gap-2">
-                {visibleDays.map((day) => {
-                  const isSelected = selectedDate === day;
-                  const isToday = day === getNextDays(1, 0)[0];
-                  const dayNum = day.split('-')[2];
-                  return (
-                    <button
-                      key={day}
-                      type="button"
-                      onClick={() => setSelectedDate(day)}
-                      className={cn(
-                        'flex min-w-[60px] flex-1 flex-col items-center gap-0.5 rounded-xl border px-2 py-2.5 transition-all active:scale-95',
-                        isSelected
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border hover:bg-muted/50',
-                      )}
-                    >
-                      <span className={cn('text-[10px] uppercase', isSelected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
-                        {getDayName(day).replace('.', '')}
-                      </span>
-                      <span className="text-lg font-bold">{dayNum}</span>
-                      {isToday && (
-                        <span className={cn('text-[9px] font-medium', isSelected ? 'text-primary-foreground/80' : 'text-primary')}>
-                          HOJE
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          </div>
 
-          {/* Time slots */}
-          <div>
-            <span className="mb-2 block text-sm font-medium text-muted-foreground">
-              {selectedDate ? 'Horários disponíveis' : 'Selecione um dia acima'}
-            </span>
+            <div className="mb-5 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0 rounded-2xl"
+                onClick={() => setDayOffset(Math.max(0, dayOffset - 7))}
+                disabled={dayOffset === 0}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <ScrollArea className="flex-1">
+                <div className="flex gap-2">
+                  {visibleDays.map((day) => {
+                    const isSelected = selectedDate === day;
+                    const isToday = day === getNextDays(1, 0)[0];
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setSelectedDate(day)}
+                        className={cn(
+                          'flex min-w-[72px] flex-col items-center gap-0.5 rounded-2xl px-3 py-2.5 text-center transition-colors',
+                          isSelected
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'text-[11px] uppercase',
+                            isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground',
+                          )}
+                        >
+                          {getDayName(day).replace('.', '')}
+                        </span>
+                        <span className="text-sm font-semibold">
+                          {formatDateBR(day).slice(0, 5)}
+                        </span>
+                        {isToday ? (
+                          <span
+                            className={cn(
+                              'text-[10px] font-medium',
+                              isSelected
+                                ? 'text-primary-foreground/80'
+                                : 'text-[var(--admin-accent)]',
+                            )}
+                          >
+                            Hoje
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 shrink-0 rounded-2xl"
+                onClick={() => setDayOffset(dayOffset + 7)}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
 
             {slotsLoading ? (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex items-center justify-center py-10">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
               </div>
-            ) : !selectedDate ? null : dayClosed ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-red-500/30 bg-red-500/5 py-8">
-                <CalendarDays className="mb-2 size-8 text-red-400/60" />
-                <p className="text-sm font-medium text-red-400">
-                  Fechado neste dia
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Feriado ou dia sem funcionamento. Escolha outra data.
-                </p>
+            ) : dayClosed ? (
+              <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
+                <CalendarDays className="mb-2 size-8 text-muted-foreground/40" />
+                <p className="text-sm font-medium">Fechado neste dia</p>
+                <p className="text-xs text-muted-foreground">Escolha outra data para continuar.</p>
               </div>
             ) : availableSlots.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-8">
+              <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
                 <Clock className="mb-2 size-8 text-muted-foreground/40" />
                 <p className="text-sm text-muted-foreground">
                   Nenhum horário disponível neste dia.
@@ -496,20 +463,21 @@ export default function BookPage() {
               </div>
             ) : (
               <>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {availableSlots.length} horário{availableSlots.length !== 1 && 's'} disponíve{availableSlots.length !== 1 ? 'is' : 'l'}
+                <p className="mb-3 text-sm text-muted-foreground">
+                  {availableSlots.length} horário{availableSlots.length !== 1 ? 's' : ''} disponível
+                  {availableSlots.length !== 1 ? 'is' : ''}
                 </p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                   {availableSlots.map((slot) => (
                     <button
                       key={slot.start}
                       type="button"
                       onClick={() => setSelectedSlot(slot)}
                       className={cn(
-                        'rounded-xl border px-2 py-3 text-sm font-semibold transition-all active:scale-95',
+                        'rounded-2xl px-2 py-3 text-sm font-semibold transition-colors',
                         selectedSlot?.start === slot.start
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border hover:bg-muted/50',
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
                       )}
                     >
                       {formatSlotTime(slot.start)}
@@ -518,95 +486,91 @@ export default function BookPage() {
                 </div>
               </>
             )}
-          </div>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes" className="text-sm text-muted-foreground">
-              Observações <span className="text-muted-foreground/60">(opcional)</span>
-            </Label>
-            <Textarea
-              id="notes"
-              placeholder="Alguma informação adicional..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="resize-none text-sm"
-            />
-          </div>
+            <div className="mt-5 space-y-2">
+              <Label htmlFor="notes" className="text-sm text-muted-foreground">
+                Observações <span className="text-muted-foreground/60">(opcional)</span>
+              </Label>
+              <Textarea
+                id="notes"
+                placeholder="Alguma informação adicional..."
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                rows={2}
+                className="resize-none rounded-2xl text-sm"
+              />
+            </div>
+          </section>
 
-          {/* Summary */}
-          {selectedSlot && (
-            <Card className="border-primary/30 bg-primary/5">
-              <CardContent className="p-4">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
-                  <Sparkles className="size-4" />
-                  Resumo do agendamento
-                </div>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Serviço</span>
-                    <span className="font-medium">{selectedProduct?.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Profissional</span>
-                    <span className="font-medium">{selectedEmployee?.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Data</span>
-                    <span className="font-medium">{formatDateBR(selectedDate)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Horário</span>
-                    <span className="font-medium">
-                      {formatSlotTime(selectedSlot.start)} – {formatSlotTime(selectedSlot.end)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Duração</span>
-                    <span className="font-medium">{formatDuration(selectedProduct!.duration)}</span>
-                  </div>
-                  <Separator className="my-1" />
-                  <div className="flex justify-between text-base">
-                    <span className="font-semibold">Total</span>
-                    <span className="font-bold text-primary">
-                      {formatCurrency(selectedProduct!.price)}
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <section className="admin-surface p-5 sm:p-6">
+            <h2 className="font-semibold">Resumo</h2>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Serviço</span>
+                <span className="text-right font-medium">{selectedProduct?.name}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Profissional</span>
+                <span className="text-right font-medium">{selectedEmployee?.name}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Data</span>
+                <span className="text-right font-medium">
+                  {selectedDate ? formatDateBR(selectedDate) : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Horário</span>
+                <span className="text-right font-medium">
+                  {selectedSlot
+                    ? `${formatSlotTime(selectedSlot.start)} – ${formatSlotTime(selectedSlot.end)}`
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Duração</span>
+                <span className="text-right font-medium">
+                  {selectedProduct ? formatDuration(selectedProduct.duration) : '—'}
+                </span>
+              </div>
+              <Separator />
+              <div className="flex justify-between text-base">
+                <span className="font-semibold">Total</span>
+                <span className="font-semibold text-[var(--admin-accent)]">
+                  {selectedProduct ? formatCurrency(selectedProduct.price) : '—'}
+                </span>
+              </div>
+            </div>
+          </section>
         </div>
-      )}
+      ) : null}
 
-      {/* Navigation */}
       <div className="flex items-center gap-3">
-        {step > 1 && (
-          <Button variant="outline" onClick={goBack} className="flex-1">
-            <ArrowLeft className="mr-2 size-4" />
+        {step > 1 ? (
+          <Button variant="outline" onClick={goBack} className="flex-1 rounded-full">
+            <ArrowLeft className="size-4" />
             Voltar
           </Button>
-        )}
+        ) : null}
 
         {step < 3 ? (
-          <Button onClick={goNext} disabled={!canGoNext} className="flex-1">
+          <Button onClick={goNext} disabled={!canGoNext} className="flex-1 rounded-full">
             Próximo
-            <ArrowRight className="ml-2 size-4" />
+            <ArrowRight className="size-4" />
           </Button>
         ) : (
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit || submitting}
-            className="flex-1"
+            className="flex-1 rounded-full"
             size="lg"
           >
             {submitting ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Check className="mr-2 size-4" />
+              <Check className="size-4" />
             )}
-            Confirmar Agendamento
+            Confirmar agendamento
           </Button>
         )}
       </div>
