@@ -1,109 +1,65 @@
-# 📅 Sistema de Agendamentos
+# Sistema de Agendamentos
 
-Sistema de agendamentos online — monorepo com backend e frontend.
+Monorepo: frontend na **Vercel**, API e PostgreSQL no **Railway**. Local e produção usam o **mesmo banco**.
 
-## 🏗️ Arquitetura
+Documentação técnica completa (funcionalidades, arquitetura, API, dependências e infra): [docs/aplicacao.md](docs/aplicacao.md).
 
-```
-agendamentos/
-├── apps/
-│   ├── api/          # Backend — Node.js + Express + TypeScript
-│   └── web/          # Frontend — Next.js 15 + React 19 + SCSS
-├── packages/         # Pacotes compartilhados (futuro)
-├── .editorconfig
-├── .prettierrc
-├── .nvmrc
-└── package.json      # Root — npm workspaces
-```
+## Onde está cada parte
 
-## 🚀 Começando
+| Camada | Host             | URL                                                             |
+| ------ | ---------------- | --------------------------------------------------------------- |
+| Web    | Vercel           | https://agendamento.mefelipe.com.br                             |
+| API    | Railway          | https://api-production-ac23.up.railway.app                      |
+| Banco  | Railway Postgres | acessado só pela API (produção: rede privada; local: túnel SSH) |
 
-### Pré-requisitos
+O browser chama a API (`NEXT_PUBLIC_API_URL`). A API é quem conecta no Postgres.
 
-- Node.js >= 20
-- npm >= 10
+## Começando (local = mesmo Postgres de produção)
 
-### Instalação
+Pré-requisitos: Node.js >= 20, npm >= 10, Railway CLI autenticado.
 
 ```bash
-# Clone o repositório
-git clone <url-do-repo>
-cd agendamentos
-
-# Instale todas as dependências (root + workspaces)
 npm install
-
-# Copie os .env de exemplo
 cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env
-```
 
-### Rodando o projeto
+# Terminal 1 — túnel para o Postgres do Railway (deixar aberto)
+npm run db:tunnel
 
-```bash
-# Rodar backend + frontend juntos
+# Terminal 2 — dados fictícios (admin, profissionais, produtos, agendas)
+npm run db:seed
+
+# Terminal 3
 npm run dev
-
-# Rodar apenas o backend (porta 3001)
-npm run dev:api
-
-# Rodar apenas o frontend (porta 3000)
-npm run dev:web
 ```
 
-### Build
+- Frontend: http://localhost:3000
+- API: http://localhost:3001
+- Swagger: http://localhost:3001/api/docs
+
+Sem o túnel, a API local não alcança o banco (`ECONNREFUSED` em `127.0.0.1:5433`).
+
+## Comandos
 
 ```bash
-# Build de tudo
+npm run dev          # API + web
+npm run dev:api      # só API (:3001)
+npm run dev:web      # só web (:3000)
+npm run db:tunnel    # túnel SSH do Postgres Railway → :5433
+npm run db:seed      # popular o banco com dados fictícios
 npm run build
-
-# Build individual
-npm run build:api
-npm run build:web
-```
-
-### Outros comandos
-
-```bash
-# Lint
 npm run lint
-
-# Formatar código
 npm run format
-
-# Verificar formatação
-npm run format:check
-
-# Limpar node_modules e builds
-npm run clean
 ```
 
-## 🛠️ Stack
+## Stack
 
-| Camada   | Tecnologia                        |
-| -------- | --------------------------------- |
-| Backend  | Node.js, Express, TypeScript      |
-| Frontend | Next.js 15, React 19, SCSS        |
-| Monorepo | npm workspaces                    |
-| Lint     | ESLint, Prettier                  |
-| Git      | Husky, lint-staged                |
+| Camada    | Tecnologia                                         |
+| --------- | -------------------------------------------------- |
+| Backend   | Node.js, Express, TypeScript, Prisma 7, PostgreSQL |
+| Frontend  | Next.js 15, React 19, Tailwind                     |
+| Monorepo  | npm workspaces                                     |
+| Qualidade | ESLint, Prettier, Husky                            |
 
-## 📡 Endpoints da API
+## Commits
 
-| Método | Rota           | Descrição              |
-| ------ | -------------- | ---------------------- |
-| GET    | /api/health    | Health check           |
-| GET    | /api/docs      | Documentação Swagger   |
-| GET    | /api/docs.json | Swagger spec em JSON   |
-
-## 📝 Convenções de Commits
-
-Utilizamos [Conventional Commits](https://www.conventionalcommits.org/):
-
-- `feat:` — nova funcionalidade
-- `fix:` — correção de bug
-- `docs:` — documentação
-- `style:` — formatação (sem mudança de lógica)
-- `refactor:` — refatoração
-- `test:` — testes
-- `chore:` — tarefas de build/config
+[Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
