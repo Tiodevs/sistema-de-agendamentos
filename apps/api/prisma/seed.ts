@@ -60,28 +60,28 @@ const PRODUCTS = [
 const PROFESSIONALS = [
   {
     name: 'Marina Costa',
-    email: 'marina.costa@sentier.dev',
+    email: 'marina.costa@leemia.dev',
     phone: '(11) 98888-1001',
     products: ['Corte masculino', 'Corte + barba', 'Hidratação'],
   },
   {
     name: 'Rafael Souza',
-    email: 'rafael.souza@sentier.dev',
+    email: 'rafael.souza@leemia.dev',
     phone: '(11) 98888-1002',
     products: ['Corte masculino', 'Barba', 'Corte + barba'],
   },
   {
     name: 'Ana Oliveira',
-    email: 'ana.oliveira@sentier.dev',
+    email: 'ana.oliveira@leemia.dev',
     phone: '(11) 98888-1003',
     products: ['Hidratação', 'Design de sobrancelha', 'Relaxamento capilar'],
   },
 ] as const;
 
 const EXTRA_CLIENTS = [
-  { name: 'Camila Rocha', email: 'camila.rocha@sentier.dev', phone: '(11) 97777-2001' },
-  { name: 'Bruno Almeida', email: 'bruno.almeida@sentier.dev', phone: '(11) 97777-2002' },
-  { name: 'Juliana Martins', email: 'juliana.martins@sentier.dev', phone: '(11) 97777-2003' },
+  { name: 'Camila Rocha', email: 'camila.rocha@leemia.dev', phone: '(11) 97777-2001' },
+  { name: 'Bruno Almeida', email: 'bruno.almeida@leemia.dev', phone: '(11) 97777-2002' },
+  { name: 'Juliana Martins', email: 'juliana.martins@leemia.dev', phone: '(11) 97777-2003' },
 ] as const;
 
 function atDays(daysFromToday: number, hour: number, minute: number): Date {
@@ -181,7 +181,34 @@ async function upsertEmployee(data: {
   });
 }
 
+async function renameLegacyBrandEmails() {
+  const fromDomain = '@sentier.dev';
+  const toDomain = '@leemia.dev';
+
+  const users = await prisma.user.findMany({
+    where: { email: { endsWith: fromDomain } },
+  });
+  for (const user of users) {
+    const nextEmail = user.email.replace(fromDomain, toDomain);
+    const clash = await prisma.user.findUnique({ where: { email: nextEmail } });
+    if (clash) continue;
+    await prisma.user.update({ where: { id: user.id }, data: { email: nextEmail } });
+  }
+
+  const employees = await prisma.employee.findMany({
+    where: { email: { endsWith: fromDomain } },
+  });
+  for (const employee of employees) {
+    const nextEmail = employee.email.replace(fromDomain, toDomain);
+    const clash = await prisma.employee.findUnique({ where: { email: nextEmail } });
+    if (clash) continue;
+    await prisma.employee.update({ where: { id: employee.id }, data: { email: nextEmail } });
+  }
+}
+
 async function main() {
+  await renameLegacyBrandEmails();
+
   const admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
   if (!admin) {
     throw new Error(
@@ -286,9 +313,9 @@ async function main() {
     where: { notes: { startsWith: SEED_NOTE } },
   });
 
-  const marina = employeesByEmail.get('marina.costa@sentier.dev')!;
-  const rafael = employeesByEmail.get('rafael.souza@sentier.dev')!;
-  const ana = employeesByEmail.get('ana.oliveira@sentier.dev')!;
+  const marina = employeesByEmail.get('marina.costa@leemia.dev')!;
+  const rafael = employeesByEmail.get('rafael.souza@leemia.dev')!;
+  const ana = employeesByEmail.get('ana.oliveira@leemia.dev')!;
   const corte = productsByName.get('Corte masculino')!;
   const barba = productsByName.get('Barba')!;
   const combo = productsByName.get('Corte + barba')!;
