@@ -112,11 +112,12 @@ export function ProfileForm() {
   }
 
   async function handleRecropCurrent() {
-    if (!user.avatarUrl) return;
+    const avatarUrl = user?.avatarUrl;
+    if (!avatarUrl) return;
     setPreparingCrop(true);
     try {
       closeCropDialog();
-      setCropSrc(await remoteImageToObjectUrl(user.avatarUrl));
+      setCropSrc(await remoteImageToObjectUrl(avatarUrl));
     } catch (error) {
       applyApiErrors(error);
     } finally {
