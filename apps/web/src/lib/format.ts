@@ -23,6 +23,11 @@ export function formatCompactHours(minutes: number): string {
   return `${Math.round(minutes)}min`;
 }
 
+export function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.round(value)}%`;
+}
+
 export function getInitials(name: string) {
   return name
     .split(' ')
