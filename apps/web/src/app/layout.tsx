@@ -1,18 +1,20 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import Script from 'next/script';
 import '@/styles/globals.css';
 import '@/styles/globals.scss';
 import { cn } from '@/lib/utils';
 import { plusJakarta } from '@/lib/fonts';
 import { adminThemeBootstrapScript } from '@/lib/admin-theme-script';
+import { introBootstrapScript } from '@/lib/intro-script';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'Sistema de Agendamentos',
-  description: 'Sistema de agendamentos online',
-  icons: {
-    icon: '/icon.svg',
+  title: 'Leemia',
+  description: 'Agendamentos online Leemia',
+  openGraph: {
+    title: 'Leemia',
+    description: 'Agendamentos online Leemia',
+    images: ['/leemia-logo.png'],
   },
 };
 
@@ -27,9 +29,10 @@ export default function RootLayout({
         <Script id="admin-theme" strategy="beforeInteractive">
           {adminThemeBootstrapScript}
         </Script>
-        <Suspense>
-          <Providers>{children}</Providers>
-        </Suspense>
+        <Script id="leemia-intro" strategy="beforeInteractive">
+          {introBootstrapScript}
+        </Script>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

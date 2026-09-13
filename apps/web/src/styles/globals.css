@@ -127,4 +127,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  html[data-leemia-intro='1'] body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: #05070a;
+    pointer-events: none;
+  }
+
+  [data-motion='lift'] {
+    transform: translateZ(0);
+  }
 }
