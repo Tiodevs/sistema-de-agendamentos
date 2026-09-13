@@ -1,36 +1,48 @@
 import { prisma } from '../config/database';
 import { CreateEmployeeInput, UpdateEmployeeInput } from '../schemas/employee.schema';
+import { userAvatarUrl } from '../lib/avatar';
+
+const employeeInclude = {
+  products: {
+    include: {
+      product: {
+        select: { id: true, name: true, price: true, duration: true, active: true },
+      },
+    },
+  },
+  user: {
+    select: { id: true, avatar: true, updatedAt: true },
+  },
+} as const;
+
+function withPublicAvatar<
+  T extends {
+    avatar: string | null;
+    user?: { id: string; avatar: string | null; updatedAt: Date } | null;
+  },
+>(employee: T) {
+  const { user, ...rest } = employee;
+  return {
+    ...rest,
+    avatar: user ? userAvatarUrl(user.id, user.avatar, user.updatedAt) : employee.avatar,
+  };
+}
 
 export class EmployeeService {
   async findAll(includeInactive = false) {
     const where = includeInactive ? {} : { active: true };
-    return prisma.employee.findMany({
+    const employees = await prisma.employee.findMany({
       where,
-      include: {
-        products: {
-          include: {
-            product: {
-              select: { id: true, name: true, price: true, duration: true, active: true },
-            },
-          },
-        },
-      },
+      include: employeeInclude,
       orderBy: { name: 'asc' },
     });
+    return employees.map(withPublicAvatar);
   }
 
   async findById(id: string) {
     const employee = await prisma.employee.findUnique({
       where: { id },
-      include: {
-        products: {
-          include: {
-            product: {
-              select: { id: true, name: true, price: true, duration: true, active: true },
-            },
-          },
-        },
-      },
+      include: employeeInclude,
     });
 
     if (!employee) {
@@ -39,13 +51,15 @@ export class EmployeeService {
       throw error;
     }
 
-    return employee;
+    return withPublicAvatar(employee);
   }
 
   async create(data: CreateEmployeeInput) {
     const existing = await prisma.employee.findUnique({ where: { email: data.email } });
     if (existing) {
-      const error = new Error('Já existe um funcionário com este e-mail') as Error & { statusCode: number };
+      const error = new Error('Já existe um funcionário com este e-mail') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 409;
       throw error;
     }
@@ -61,15 +75,7 @@ export class EmployeeService {
         avatar: data.avatar || null,
         ...(existingUser ? { userId: existingUser.id } : {}),
       },
-      include: {
-        products: {
-          include: {
-            product: {
-              select: { id: true, name: true, price: true, duration: true, active: true },
-            },
-          },
-        },
-      },
+      include: employeeInclude,
     });
 
     // Se vinculou ao user, atualizar role para EMPLOYEE
@@ -80,7 +86,7 @@ export class EmployeeService {
       });
     }
 
-    return employee;
+    return withPublicAvatar(employee);
   }
 
   async update(id: string, data: UpdateEmployeeInput) {
@@ -91,13 +97,15 @@ export class EmployeeService {
         where: { email: data.email, NOT: { id } },
       });
       if (existing) {
-        const error = new Error('Já existe um funcionário com este e-mail') as Error & { statusCode: number };
+        const error = new Error('Já existe um funcionário com este e-mail') as Error & {
+          statusCode: number;
+        };
         error.statusCode = 409;
         throw error;
       }
     }
 
-    return prisma.employee.update({
+    const employee = await prisma.employee.update({
       where: { id },
       data: {
         ...(data.name !== undefined && { name: data.name }),
@@ -105,34 +113,20 @@ export class EmployeeService {
         ...(data.phone !== undefined && { phone: data.phone || null }),
         ...(data.avatar !== undefined && { avatar: data.avatar || null }),
       },
-      include: {
-        products: {
-          include: {
-            product: {
-              select: { id: true, name: true, price: true, duration: true, active: true },
-            },
-          },
-        },
-      },
+      include: employeeInclude,
     });
+    return withPublicAvatar(employee);
   }
 
   async toggleActive(id: string) {
     const existing = await this.findById(id);
 
-    return prisma.employee.update({
+    const employee = await prisma.employee.update({
       where: { id },
       data: { active: !existing.active },
-      include: {
-        products: {
-          include: {
-            product: {
-              select: { id: true, name: true, price: true, duration: true, active: true },
-            },
-          },
-        },
-      },
+      include: employeeInclude,
     });
+    return withPublicAvatar(employee);
   }
 
   async delete(id: string) {
@@ -149,7 +143,9 @@ export class EmployeeService {
     });
 
     if (products.length !== productIds.length) {
-      const error = new Error('Um ou mais produtos não foram encontrados') as Error & { statusCode: number };
+      const error = new Error('Um ou mais produtos não foram encontrados') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }

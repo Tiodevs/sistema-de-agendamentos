@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { handleAvatarUpload } from '../middlewares/upload.middleware';
 
 const authRouter = Router();
 const authController = new AuthController();
@@ -70,6 +71,9 @@ const authController = new AuthController();
  *                   nullable: true
  *                 role:
  *                   type: string
+ *                 avatarUrl:
+ *                   type: string
+ *                   nullable: true
  *                 createdAt:
  *                   type: string
  *                   format: date-time
@@ -174,6 +178,84 @@ authRouter.get('/me', authMiddleware, (req, res, next) => authController.me(req,
 
 /**
  * @swagger
+ * /api/auth/profile:
+ *   patch:
+ *     summary: Atualizar perfil
+ *     description: Atualiza nome, e-mail e telefone do usuário autenticado.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               phone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Perfil atualizado
+ *       400:
+ *         description: Dados inválidos
+ *       401:
+ *         description: Não autenticado
+ *       409:
+ *         description: E-mail já em uso
+ */
+authRouter.patch('/profile', authMiddleware, (req, res, next) =>
+  authController.updateProfile(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/profile/avatar:
+ *   post:
+ *     summary: Enviar foto de perfil
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [avatar]
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Foto atualizada
+ *       400:
+ *         description: Arquivo inválido
+ *   delete:
+ *     summary: Remover foto de perfil
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Foto removida
+ */
+authRouter.post('/profile/avatar', authMiddleware, handleAvatarUpload, (req, res, next) =>
+  authController.updateAvatar(req, res, next),
+);
+authRouter.delete('/profile/avatar', authMiddleware, (req, res, next) =>
+  authController.deleteAvatar(req, res, next),
+);
+
+/**
+ * @swagger
  * /api/auth/clients:
  *   get:
  *     summary: Listar clientes (Admin)
@@ -191,6 +273,8 @@ authRouter.get('/me', authMiddleware, (req, res, next) => authController.me(req,
  *       200:
  *         description: Lista de clientes
  */
-authRouter.get('/clients', authMiddleware, (req, res, next) => authController.getClients(req, res, next));
+authRouter.get('/clients', authMiddleware, (req, res, next) =>
+  authController.getClients(req, res, next),
+);
 
 export { authRouter };

@@ -1,4 +1,9 @@
 import { prisma } from '../config/database';
+import {
+  appointmentClientSelect,
+  appointmentProductSelect,
+  mapClientAvatar,
+} from '../lib/appointment-map';
 
 export class ProfessionalService {
   async getDashboard(employeeId: string) {
@@ -153,23 +158,30 @@ export class ProfessionalService {
 
     // Buscar nomes dos top produtos
     const topProductIds = topProducts.map((p) => p.productId);
-    const productNames = topProductIds.length > 0
-      ? await prisma.product.findMany({
-          where: { id: { in: topProductIds } },
-          select: { id: true, name: true },
-        })
-      : [];
+    const productNames =
+      topProductIds.length > 0
+        ? await prisma.product.findMany({
+            where: { id: { in: topProductIds } },
+            select: { id: true, name: true },
+          })
+        : [];
 
     // Variações percentuais
-    const appointmentChange = prevMonthAppointments > 0
-      ? Math.round(((monthAppointments - prevMonthAppointments) / prevMonthAppointments) * 100)
-      : monthAppointments > 0 ? 100 : 0;
+    const appointmentChange =
+      prevMonthAppointments > 0
+        ? Math.round(((monthAppointments - prevMonthAppointments) / prevMonthAppointments) * 100)
+        : monthAppointments > 0
+          ? 100
+          : 0;
 
     const currentRevenue = Number(monthRevenue._sum.price || 0);
     const previousRevenue = Number(prevMonthRevenue._sum.price || 0);
-    const revenueChange = previousRevenue > 0
-      ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
-      : currentRevenue > 0 ? 100 : 0;
+    const revenueChange =
+      previousRevenue > 0
+        ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
+        : currentRevenue > 0
+          ? 100
+          : 0;
 
     // Status counts
     const statusCounts: Record<string, number> = {};
@@ -206,7 +218,10 @@ export class ProfessionalService {
     };
   }
 
-  async getAppointments(employeeId: string, filters?: { from?: string; to?: string; status?: string }) {
+  async getAppointments(
+    employeeId: string,
+    filters?: { from?: string; to?: string; status?: string },
+  ) {
     const where: Record<string, unknown> = { employeeId };
 
     if (filters?.status) where.status = filters.status;
@@ -219,17 +234,21 @@ export class ProfessionalService {
     const appointments = await prisma.appointment.findMany({
       where,
       include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
+        client: { select: appointmentClientSelect },
+        product: { select: appointmentProductSelect },
       },
       orderBy: { date: 'asc' },
     });
 
-    return appointments.map((a) => ({
-      ...a,
-      price: Number(a.price),
-      product: { ...a.product, price: Number(a.product.price) },
-    }));
+    return appointments.map((appointment) => {
+      const { client, ...rest } = appointment;
+      return {
+        ...rest,
+        price: Number(appointment.price),
+        product: { ...appointment.product, price: Number(appointment.product.price) },
+        client: mapClientAvatar(client),
+      };
+    });
   }
 
   async updateAppointmentStatus(employeeId: string, appointmentId: string, status: string) {
@@ -244,7 +263,9 @@ export class ProfessionalService {
     }
 
     if (appointment.employeeId !== employeeId) {
-      const error = new Error('Este agendamento não pertence a você') as Error & { statusCode: number };
+      const error = new Error('Este agendamento não pertence a você') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 403;
       throw error;
     }
@@ -252,7 +273,9 @@ export class ProfessionalService {
     // Profissional só pode: CONFIRMED, IN_PROGRESS, COMPLETED
     const allowedStatuses = ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'];
     if (!allowedStatuses.includes(status)) {
-      const error = new Error('Status não permitido. Use: CONFIRMED, IN_PROGRESS ou COMPLETED') as Error & { statusCode: number };
+      const error = new Error(
+        'Status não permitido. Use: CONFIRMED, IN_PROGRESS ou COMPLETED',
+      ) as Error & { statusCode: number };
       error.statusCode = 400;
       throw error;
     }
@@ -261,15 +284,17 @@ export class ProfessionalService {
       where: { id: appointmentId },
       data: { status: status as 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' },
       include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
+        client: { select: appointmentClientSelect },
+        product: { select: appointmentProductSelect },
       },
     });
 
+    const { client, ...rest } = updated;
     return {
-      ...updated,
+      ...rest,
       price: Number(updated.price),
       product: { ...updated.product, price: Number(updated.product.price) },
+      client: mapClientAvatar(client),
     };
   }
 }

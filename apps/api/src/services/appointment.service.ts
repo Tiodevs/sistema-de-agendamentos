@@ -1,4 +1,5 @@
 import { prisma } from '../config/database';
+import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import { CreateAppointmentInput } from '../schemas/appointment.schema';
 import { notifyAppointmentCancelled, notifyAppointmentScheduled } from './email.service';
 import { ScheduleService } from './schedule.service';
@@ -29,29 +30,17 @@ export class AppointmentService {
 
     const appointments = await prisma.appointment.findMany({
       where,
-      include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
-        employee: { select: { id: true, name: true, email: true, phone: true } },
-      },
+      include: appointmentInclude,
       orderBy: { date: 'asc' },
     });
 
-    return appointments.map((a) => ({
-      ...a,
-      price: Number(a.price),
-      product: { ...a.product, price: Number(a.product.price) },
-    }));
+    return appointments.map(mapAppointment);
   }
 
   async findById(id: string) {
     const appointment = await prisma.appointment.findUnique({
       where: { id },
-      include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
-        employee: { select: { id: true, name: true, email: true, phone: true } },
-      },
+      include: appointmentInclude,
     });
 
     if (!appointment) {
@@ -60,11 +49,7 @@ export class AppointmentService {
       throw error;
     }
 
-    return {
-      ...appointment,
-      price: Number(appointment.price),
-      product: { ...appointment.product, price: Number(appointment.product.price) },
-    };
+    return mapAppointment(appointment);
   }
 
   async create(data: CreateAppointmentInput) {
@@ -138,18 +123,10 @@ export class AppointmentService {
         price: product.price,
         notes: data.notes || null,
       },
-      include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
-        employee: { select: { id: true, name: true, email: true, phone: true } },
-      },
+      include: appointmentInclude,
     });
 
-    const mapped = {
-      ...appointment,
-      price: Number(appointment.price),
-      product: { ...appointment.product, price: Number(appointment.product.price) },
-    };
+    const mapped = mapAppointment(appointment);
 
     notifyAppointmentScheduled({
       id: mapped.id,
@@ -178,18 +155,10 @@ export class AppointmentService {
           | 'CANCELLED'
           | 'NO_SHOW',
       },
-      include: {
-        client: { select: { id: true, name: true, email: true, phone: true } },
-        product: { select: { id: true, name: true, duration: true, price: true } },
-        employee: { select: { id: true, name: true, email: true, phone: true } },
-      },
+      include: appointmentInclude,
     });
 
-    const mapped = {
-      ...appointment,
-      price: Number(appointment.price),
-      product: { ...appointment.product, price: Number(appointment.product.price) },
-    };
+    const mapped = mapAppointment(appointment);
 
     if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
       notifyAppointmentCancelled({

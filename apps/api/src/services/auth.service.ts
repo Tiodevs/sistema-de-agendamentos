@@ -1,8 +1,10 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
-import { RegisterInput, LoginInput } from '../schemas/auth.schema';
+import { RegisterInput, LoginInput, UpdateProfileInput } from '../schemas/auth.schema';
 import { notifyWelcome } from './email.service';
+import { storageService } from './storage.service';
+import { userAvatarUrl } from '../lib/avatar';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -12,6 +14,33 @@ interface UserPayload {
   email: string;
   role: string;
 }
+
+const profileSelect = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  avatar: true,
+  role: true,
+  active: true,
+  createdAt: true,
+  updatedAt: true,
+  employee: { select: { id: true } },
+} as const;
+
+type ProfileRecord = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  avatar: string | null;
+  role: string;
+  active?: boolean;
+  createdAt: Date;
+  updatedAt?: Date;
+  employee?: { id: string } | null;
+  employeeId?: string | null;
+};
 
 function generateToken(user: UserPayload): string {
   const expiresInSeconds = parseExpiresIn(JWT_EXPIRES_IN);
@@ -39,6 +68,47 @@ function parseExpiresIn(value: string): number {
   }
 }
 
+function httpError(message: string, statusCode: number) {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+}
+
+function toPublicUser(user: ProfileRecord) {
+  const employeeId = user.employeeId ?? user.employee?.id ?? null;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    employeeId,
+    avatarUrl: userAvatarUrl(user.id, user.avatar, user.updatedAt),
+    createdAt: user.createdAt,
+  };
+}
+
+async function syncLinkedEmployee(
+  userId: string,
+  data: { name?: string; email?: string; phone?: string | null; avatarUrl?: string | null },
+) {
+  const linked = await prisma.employee.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!linked) return;
+
+  await prisma.employee.update({
+    where: { id: linked.id },
+    data: {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.email !== undefined && { email: data.email }),
+      ...(data.phone !== undefined && { phone: data.phone }),
+      ...(data.avatarUrl !== undefined && { avatar: data.avatarUrl }),
+    },
+  });
+}
+
 export class AuthService {
   async register(data: RegisterInput) {
     const existingUser = await prisma.user.findUnique({
@@ -46,9 +116,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      const error = new Error('E-mail já está em uso') as Error & { statusCode: number };
-      error.statusCode = 409;
-      throw error;
+      throw httpError('E-mail já está em uso', 409);
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 12);
@@ -60,6 +128,7 @@ export class AuthService {
         password: hashedPassword,
         phone: data.phone || null,
       },
+      select: profileSelect,
     });
 
     const token = generateToken(user);
@@ -71,14 +140,7 @@ export class AuthService {
     });
 
     return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        createdAt: user.createdAt,
-      },
+      user: toPublicUser(user),
       token,
     };
   }
@@ -86,46 +148,28 @@ export class AuthService {
   async login(data: LoginInput) {
     const user = await prisma.user.findUnique({
       where: { email: data.email },
+      select: { ...profileSelect, password: true },
     });
 
     if (!user) {
-      const error = new Error('E-mail ou senha inválidos') as Error & { statusCode: number };
-      error.statusCode = 401;
-      throw error;
+      throw httpError('E-mail ou senha inválidos', 401);
     }
 
     if (!user.active) {
-      const error = new Error('Conta desativada') as Error & { statusCode: number };
-      error.statusCode = 403;
-      throw error;
+      throw httpError('Conta desativada', 403);
     }
 
     const isPasswordValid = await bcrypt.compare(data.password, user.password);
 
     if (!isPasswordValid) {
-      const error = new Error('E-mail ou senha inválidos') as Error & { statusCode: number };
-      error.statusCode = 401;
-      throw error;
+      throw httpError('E-mail ou senha inválidos', 401);
     }
 
-    // Verificar se o user tem employee vinculado
-    const linkedEmployee = await prisma.employee.findUnique({
-      where: { userId: user.id },
-      select: { id: true },
-    });
-
     const token = generateToken(user);
+    const { password: _password, ...safeUser } = user;
 
     return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        employeeId: linkedEmployee?.id || null,
-        createdAt: user.createdAt,
-      },
+      user: toPublicUser(safeUser),
       token,
     };
   }
@@ -133,29 +177,134 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        role: true,
-        active: true,
-        createdAt: true,
-        updatedAt: true,
-        employee: { select: { id: true } },
-      },
+      select: profileSelect,
     });
 
     if (!user) {
-      const error = new Error('Usuário não encontrado') as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
+      throw httpError('Usuário não encontrado', 404);
     }
 
-    return {
-      ...user,
-      employeeId: user.employee?.id || null,
-    };
+    return toPublicUser(user);
+  }
+
+  async updateProfile(userId: string, data: UpdateProfileInput) {
+    const current = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, employee: { select: { id: true } } },
+    });
+
+    if (!current) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    if (data.email !== current.email) {
+      const existingUser = await prisma.user.findUnique({ where: { email: data.email } });
+      if (existingUser) {
+        throw httpError('E-mail já está em uso', 409);
+      }
+
+      if (current.employee) {
+        const existingEmployee = await prisma.employee.findFirst({
+          where: { email: data.email, NOT: { id: current.employee.id } },
+        });
+        if (existingEmployee) {
+          throw httpError('E-mail já está em uso', 409);
+        }
+      }
+    }
+
+    const phone = data.phone === undefined ? undefined : data.phone || null;
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: data.name,
+        email: data.email,
+        ...(phone !== undefined && { phone }),
+      },
+      select: profileSelect,
+    });
+
+    await syncLinkedEmployee(userId, {
+      name: data.name,
+      email: data.email,
+      phone,
+    });
+
+    return toPublicUser(user);
+  }
+
+  async updateAvatar(
+    userId: string,
+    file: { buffer: Buffer; mimetype: string; originalname: string },
+  ) {
+    const current = await prisma.user.findUnique({
+      where: { id: userId },
+      select: profileSelect,
+    });
+
+    if (!current) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    const key = await storageService.uploadAvatar(userId, file);
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { avatar: key },
+      select: profileSelect,
+    });
+
+    const publicUser = toPublicUser(user);
+    await syncLinkedEmployee(userId, { avatarUrl: publicUser.avatarUrl });
+
+    if (current.avatar && current.avatar !== key) {
+      storageService.deleteObject(current.avatar).catch((error) => {
+        console.error('[storage] falha ao remover avatar antigo', error);
+      });
+    }
+
+    return publicUser;
+  }
+
+  async deleteAvatar(userId: string) {
+    const current = await prisma.user.findUnique({
+      where: { id: userId },
+      select: profileSelect,
+    });
+
+    if (!current) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    if (!current.avatar) {
+      return toPublicUser(current);
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { avatar: null },
+      select: profileSelect,
+    });
+
+    await syncLinkedEmployee(userId, { avatarUrl: null });
+    storageService.deleteObject(current.avatar).catch((error) => {
+      console.error('[storage] falha ao remover avatar', error);
+    });
+
+    return toPublicUser(user);
+  }
+
+  async getAvatarFile(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatar: true },
+    });
+
+    if (!user?.avatar) {
+      throw httpError('Foto de perfil não encontrada', 404);
+    }
+
+    return storageService.getObject(user.avatar);
   }
 
   async getClients(search?: string) {
@@ -167,7 +316,7 @@ export class AuthService {
       ];
     }
 
-    return prisma.user.findMany({
+    const clients = await prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -175,9 +324,20 @@ export class AuthService {
         email: true,
         phone: true,
         role: true,
+        avatar: true,
+        updatedAt: true,
       },
       orderBy: { name: 'asc' },
       take: 50,
     });
+
+    return clients.map((client) => ({
+      id: client.id,
+      name: client.name,
+      email: client.email,
+      phone: client.phone,
+      role: client.role,
+      avatarUrl: userAvatarUrl(client.id, client.avatar, client.updatedAt),
+    }));
   }
 }
