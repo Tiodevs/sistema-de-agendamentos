@@ -1,39 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   getProfessionalDashboard,
-  type ProfessionalDashboardData,
   type AppointmentStatus,
+  type ProfessionalDashboardData,
 } from '@/lib/api';
-import { formatCurrency } from '@/lib/format';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import {
-  CalendarDays,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  Users,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  CalendarCheck,
-  Trophy,
-} from 'lucide-react';
+import { formatCurrency, formatDuration } from '@/lib/format';
+import { STATUS_CONFIG } from '@/lib/appointment-status';
+import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { CalendarDays, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
-const STATUS_CONFIG: Record<AppointmentStatus, { label: string; color: string; bg: string }> = {
-  SCHEDULED: { label: 'Agendado', color: 'text-blue-400', bg: 'bg-blue-500/20' },
-  CONFIRMED: { label: 'Confirmado', color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
-  IN_PROGRESS: { label: 'Em andamento', color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
-  COMPLETED: { label: 'Concluído', color: 'text-green-400', bg: 'bg-green-500/20' },
-  CANCELLED: { label: 'Cancelado', color: 'text-red-400', bg: 'bg-red-500/20' },
-  NO_SHOW: { label: 'Não compareceu', color: 'text-gray-400', bg: 'bg-gray-500/20' },
-};
-
-function formatTime(isoString: string): string {
+function formatSlotTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -41,10 +24,19 @@ function formatTime(isoString: string): string {
   });
 }
 
+function formatShortDate(isoString: string): string {
+  return new Date(isoString).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    timeZone: 'America/Sao_Paulo',
+  });
+}
+
 export default function ProfessionalDashboardPage() {
+  const router = useRouter();
   const [data, setData] = useState<ProfessionalDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [todayFilter, setTodayFilter] = useState<'ALL' | AppointmentStatus>('ALL');
 
   useEffect(() => {
     async function load() {
@@ -52,7 +44,7 @@ export default function ProfessionalDashboardPage() {
         const res = await getProfessionalDashboard();
         if (res.data) setData(res.data);
       } catch {
-        setError('Erro ao carregar dados');
+        toast.error('Erro ao carregar dados do dashboard');
       } finally {
         setLoading(false);
       }
@@ -60,238 +52,333 @@ export default function ProfessionalDashboardPage() {
     load();
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-2">
-        <p className="text-muted-foreground">{error || 'Sem dados'}</p>
-      </div>
-    );
-  }
+  const filteredToday = useMemo(() => {
+    if (!data) return [];
+    if (todayFilter === 'ALL') return data.todayAppointments;
+    return data.todayAppointments.filter((item) => item.status === todayFilter);
+  }, [data, todayFilter]);
 
   const greeting = (() => {
-    const h = new Date().getHours();
-    if (h < 12) return 'Bom dia';
-    if (h < 18) return 'Boa tarde';
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
     return 'Boa noite';
   })();
 
-  const { overview } = data;
+  if (loading) return null;
+
+  if (!data) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center gap-3">
+        <CalendarDays className="size-10 text-muted-foreground" />
+        <p className="text-muted-foreground">Erro ao carregar dados</p>
+        <Button variant="outline" className="rounded-full" onClick={() => window.location.reload()}>
+          Tentar novamente
+        </Button>
+      </div>
+    );
+  }
+
+  const { overview, todayAppointments, statusBreakdown, topProducts } = data;
+  const totalStatusCount = Object.values(statusBreakdown).reduce((sum, count) => sum + count, 0);
+  const activeCount =
+    (statusBreakdown.SCHEDULED || 0) +
+    (statusBreakdown.CONFIRMED || 0) +
+    (statusBreakdown.IN_PROGRESS || 0);
+  const completedCount = statusBreakdown.COMPLETED || 0;
+  const stoppedCount = (statusBreakdown.CANCELLED || 0) + (statusBreakdown.NO_SHOW || 0);
+  const nextAppointment = todayAppointments[0];
+  const todayStatuses = Array.from(new Set(todayAppointments.map((item) => item.status)));
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <p className="text-sm text-muted-foreground">{greeting} 👋</p>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {data.employee?.name || 'Profissional'}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Aqui está o resumo da sua atividade
-        </p>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Agendamentos do mês */}
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-blue-500/10">
-              <CalendarDays className="size-6 text-blue-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Mês atual</p>
-              <p className="text-2xl font-bold">{overview.monthAppointments}</p>
-              <div className="flex items-center gap-1 text-xs">
-                {overview.appointmentChange >= 0 ? (
-                  <TrendingUp className="size-3 text-emerald-400" />
-                ) : (
-                  <TrendingDown className="size-3 text-red-400" />
-                )}
-                <span className={overview.appointmentChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                  {overview.appointmentChange > 0 ? '+' : ''}{overview.appointmentChange}%
-                </span>
-                <span className="text-muted-foreground">vs mês anterior</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Receita do mês */}
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-emerald-500/10">
-              <DollarSign className="size-6 text-emerald-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Receita do mês</p>
-              <p className="text-2xl font-bold">{formatCurrency(overview.monthRevenue)}</p>
-              <div className="flex items-center gap-1 text-xs">
-                {overview.revenueChange >= 0 ? (
-                  <TrendingUp className="size-3 text-emerald-400" />
-                ) : (
-                  <TrendingDown className="size-3 text-red-400" />
-                )}
-                <span className={overview.revenueChange >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                  {overview.revenueChange > 0 ? '+' : ''}{overview.revenueChange}%
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Semana */}
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-purple-500/10">
-              <CalendarCheck className="size-6 text-purple-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Esta semana</p>
-              <p className="text-2xl font-bold">{overview.weekAppointments}</p>
-              <p className="text-xs text-muted-foreground">agendamentos</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Clientes atendidos */}
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-orange-500/10">
-              <Users className="size-6 text-orange-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Clientes</p>
-              <p className="text-2xl font-bold">{overview.totalClients}</p>
-              <p className="text-xs text-muted-foreground">clientes atendidos</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Agenda de hoje */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Clock className="size-5 text-primary" />
-              Agenda de Hoje
-              <Badge variant="secondary" className="ml-auto">
-                {data.todayAppointments.length} atendimentos
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.todayAppointments.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                Nenhum atendimento hoje 🎉
+    <StaggerIn
+      selector="[data-motion='enter']"
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
+    >
+      <div className="space-y-4">
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+          <p className="text-sm text-muted-foreground">{greeting}</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
+            {data.employee?.name || 'Profissional'}
+          </h1>
+          <div className="mt-8 grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {overview.monthAppointments}
               </p>
-            ) : (
-              <div className="space-y-3">
-                {data.todayAppointments.map((apt) => {
-                  const config = STATUS_CONFIG[apt.status];
-                  return (
-                    <div
-                      key={apt.id}
-                      className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50"
-                    >
-                      <div className="text-center">
-                        <p className="text-sm font-bold">{formatTime(apt.date)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatTime(apt.endDate)}
-                        </p>
-                      </div>
-                      <div className="h-10 w-px bg-border" />
-                      <div className="flex-1 min-w-0">
-                        <p className="truncate text-sm font-medium">{apt.client.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {apt.product.name} · {apt.product.duration}min
-                        </p>
-                      </div>
-                      <Badge variant="outline" className={cn('text-xs', config.color)}>
-                        {config.label}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              <p className="mt-1 text-xs text-muted-foreground">No mês</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {overview.weekAppointments}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">Esta semana</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {overview.totalClients}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">Clientes</p>
+            </div>
+          </div>
+        </section>
 
-        {/* Resumo mensal + top serviços */}
-        <div className="space-y-6">
-          {/* Status */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Resumo do Mês</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-green-400" />
-                  <span className="text-sm">Concluídos</span>
-                </div>
-                <span className="text-sm font-bold">{overview.completedMonth}</span>
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+          <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold tracking-tight">Agenda de hoje</h2>
+            <div className="flex items-center gap-3">
+              <div className="flex max-w-full gap-1 overflow-x-auto text-sm">
+                <button
+                  type="button"
+                  onClick={() => setTodayFilter('ALL')}
+                  className={cn(
+                    'rounded-full px-3 py-1.5 font-medium transition-colors',
+                    todayFilter === 'ALL'
+                      ? 'bg-[var(--admin-card-muted)] text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Todos
+                </button>
+                {todayStatuses.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setTodayFilter(status)}
+                    className={cn(
+                      'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                      todayFilter === status
+                        ? 'bg-[var(--admin-card-muted)] text-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {STATUS_CONFIG[status].label}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <XCircle className="size-4 text-red-400" />
-                  <span className="text-sm">Cancelados</span>
-                </div>
-                <span className="text-sm font-bold">{overview.cancelledMonth}</span>
-              </div>
-              {Object.entries(data.statusBreakdown).map(([status, count]) => {
-                const config = STATUS_CONFIG[status as AppointmentStatus];
-                if (!config) return null;
+              <button
+                type="button"
+                onClick={() => router.push('/professional/agenda')}
+                className="hidden size-9 shrink-0 items-center justify-center rounded-full bg-[var(--admin-card-muted)] sm:flex"
+                aria-label="Ver agenda"
+              >
+                <Search className="size-4" />
+              </button>
+            </div>
+          </div>
+
+          {filteredToday.length === 0 &&
+          todayAppointments.length === 0 &&
+          topProducts.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {topProducts.slice(0, 3).map((product) => {
+                const accent = accentForProduct(product.name);
+                const Icon = iconForProduct(product.name);
                 return (
-                  <div key={status} className="flex items-center justify-between">
-                    <span className={cn('text-sm', config.color)}>{config.label}</span>
-                    <span className="text-sm font-bold">{count}</span>
-                  </div>
+                  <button
+                    key={product.productId}
+                    type="button"
+                    onClick={() => router.push('/professional/agenda')}
+                    data-motion="lift"
+                    className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]"
+                  >
+                    <div
+                      className={cn(
+                        'mb-6 flex size-16 items-center justify-center rounded-3xl',
+                        accent.bg,
+                      )}
+                    >
+                      <Icon className={cn('size-8', accent.fg)} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">{product.count} no mês</p>
+                    <p className="mt-1 font-semibold">{product.name}</p>
+                  </button>
                 );
               })}
-            </CardContent>
-          </Card>
-
-          {/* Top Serviços */}
-          {data.topProducts.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Trophy className="size-4 text-yellow-400" />
-                  Top Serviços
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {data.topProducts.map((p, i) => {
-                  const medals = ['🥇', '🥈', '🥉'];
-                  return (
-                    <div key={p.productId} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 text-center text-sm">
-                          {i < 3 ? medals[i] : `${i + 1}.`}
-                        </span>
-                        <span className="text-sm">{p.name}</span>
-                      </div>
-                      <Badge variant="secondary" className="text-xs">
-                        {p.count}x
-                      </Badge>
+            </div>
+          ) : filteredToday.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
+              <CalendarDays className="mb-2 size-10 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">Nenhum compromisso neste filtro.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredToday.slice(0, 6).map((appointment) => {
+                const accent = accentForProduct(appointment.product.name);
+                const Icon = iconForProduct(appointment.product.name);
+                return (
+                  <button
+                    key={appointment.id}
+                    type="button"
+                    onClick={() => router.push('/professional/agenda')}
+                    data-motion="lift"
+                    className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]"
+                  >
+                    <div className="mb-5 flex items-start justify-between gap-3">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-chip)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                        {formatDuration(appointment.product.duration)}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatSlotTime(appointment.date)}
+                      </span>
                     </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+                    <div
+                      className={cn(
+                        'mb-5 flex size-16 items-center justify-center rounded-3xl',
+                        accent.bg,
+                      )}
+                    >
+                      <Icon className={cn('size-8', accent.fg)} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">{appointment.client.name}</p>
+                    <p className="mt-1 font-semibold leading-snug">{appointment.product.name}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {STATUS_CONFIG[appointment.status].label}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           )}
-        </div>
+        </section>
       </div>
-    </div>
+
+      <aside className="space-y-4">
+        <section
+          data-motion="enter"
+          className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
+        >
+          <div className="mb-8 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-3xl font-semibold tracking-tight">
+                {formatCurrency(overview.monthRevenue)}
+              </p>
+              <p className="mt-1 text-sm text-white/55">
+                Receita do mês
+                {overview.revenueChange !== 0 ? (
+                  <span className="ml-2 text-white/70">
+                    {overview.revenueChange > 0 ? '+' : ''}
+                    {overview.revenueChange}%
+                  </span>
+                ) : null}
+              </p>
+            </div>
+            <Button
+              onClick={() => router.push('/professional/agenda')}
+              className="rounded-full bg-white text-black hover:bg-white/90"
+            >
+              Agenda
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            {todayAppointments.length === 0 ? (
+              <p className="text-sm text-white/50">Nenhum atendimento hoje.</p>
+            ) : (
+              todayAppointments.slice(0, 4).map((appointment) => {
+                const Icon = iconForProduct(appointment.product.name);
+                return (
+                  <div key={appointment.id} className="flex items-center gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
+                      <Icon className="size-4 text-white/80" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{appointment.product.name}</p>
+                      <p className="truncate text-xs text-white/45">{appointment.client.name}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold">{formatSlotTime(appointment.date)}</p>
+                      <p className="text-[11px] text-white/40">
+                        {STATUS_CONFIG[appointment.status].label}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section data-motion="enter" className="admin-surface p-5">
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold tracking-tight">
+                {overview.monthAppointments} no mês
+              </p>
+              <p className="text-sm text-muted-foreground">Distribuição da agenda</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {overview.appointmentChange === 0
+                ? 'Estável'
+                : `${overview.appointmentChange > 0 ? '+' : ''}${overview.appointmentChange}%`}
+            </p>
+          </div>
+
+          <div className="mb-4 flex h-4 overflow-hidden rounded-full bg-[var(--admin-card-muted)]">
+            {totalStatusCount > 0 ? (
+              <>
+                <div
+                  className="h-full bg-[var(--admin-accent)]"
+                  style={{ width: `${(activeCount / totalStatusCount) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-[#34C3DD]/40"
+                  style={{ width: `${(completedCount / totalStatusCount) * 100}%` }}
+                />
+                <div
+                  className="admin-muted-striped h-full"
+                  style={{ width: `${(stoppedCount / totalStatusCount) * 100}%` }}
+                />
+              </>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2.5 rounded-full bg-[var(--admin-accent)]" />
+              Em aberto {activeCount}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2.5 rounded-full bg-[#34C3DD]/40" />
+              Concluídos {completedCount}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="size-2.5 rounded-full admin-muted-striped" />
+              Encerrados {stoppedCount}
+            </span>
+          </div>
+        </section>
+
+        <section
+          data-motion="enter"
+          className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5"
+        >
+          <p className="text-sm text-white/70">
+            {nextAppointment
+              ? `${formatDuration(nextAppointment.product.duration)} · ${formatSlotTime(nextAppointment.date)}`
+              : `${overview.weekAppointments} na semana`}
+          </p>
+          <p className="mt-2 text-xs text-white/45">
+            {nextAppointment
+              ? `Próximo: ${formatShortDate(nextAppointment.date)}`
+              : `${overview.totalClients} clientes atendidos`}
+          </p>
+          <h3 className="mt-8 text-2xl font-semibold tracking-tight text-white">
+            {nextAppointment ? nextAppointment.product.name : 'Agenda livre'}
+          </h3>
+          <p className="mt-2 max-w-[16rem] text-sm text-white/60">
+            {nextAppointment
+              ? `Com ${nextAppointment.client.name}`
+              : 'Quando chegar o próximo horário, ele aparece aqui.'}
+          </p>
+          <Button
+            onClick={() => router.push('/professional/agenda')}
+            className="mt-6 rounded-full bg-black text-white hover:bg-black/80"
+          >
+            {nextAppointment ? 'Ver detalhes' : 'Ver agenda'}
+          </Button>
+        </section>
+      </aside>
+    </StaggerIn>
   );
 }
