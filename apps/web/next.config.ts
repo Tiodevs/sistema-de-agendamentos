@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  transpilePackages: ['gsap', '@gsap/react'],
   sassOptions: {
     silenceDeprecations: ['legacy-js-api'],
   },
