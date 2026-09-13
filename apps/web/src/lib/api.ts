@@ -7,7 +7,7 @@ interface ApiResponse<T> {
   errors?: Array<{ field: string; message: string }>;
 }
 
-interface AuthData {
+export interface AuthData {
   user: {
     id: string;
     name: string;
@@ -20,30 +20,47 @@ interface AuthData {
   token: string;
 }
 
+export class ApiError extends Error {
+  statusCode: number;
+  status: 'error';
+  errors?: Array<{ field: string; message: string }>;
+
+  constructor(
+    statusCode: number,
+    message: string,
+    errors?: Array<{ field: string; message: string }>,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.statusCode = statusCode;
+    this.status = 'error';
+    this.errors = errors;
+  }
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const headers = new Headers(options.headers);
 
-  const config: RequestInit = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  };
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
   if (token) {
-    config.headers = {
-      ...config.headers,
-      Authorization: `Bearer ${token}`,
-    };
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(url, config);
-  const data = await response.json();
+  const response = await fetch(url, { ...options, headers });
+  let data: ApiResponse<T> | null = null;
+  try {
+    data = (await response.json()) as ApiResponse<T>;
+  } catch {
+    throw new ApiError(response.status || 500, 'Resposta inválida do servidor');
+  }
 
   if (!response.ok) {
-    throw data;
+    throw new ApiError(response.status, data.message || 'Erro na requisição', data.errors);
   }
 
   return data;
@@ -71,8 +88,10 @@ export async function loginUser(body: {
   });
 }
 
-export async function getMe(): Promise<ApiResponse<{ user: AuthData['user'] }>> {
-  return apiRequest('/api/auth/me');
+export async function getMe(
+  signal?: AbortSignal,
+): Promise<ApiResponse<{ user: AuthData['user'] }>> {
+  return apiRequest('/api/auth/me', { signal });
 }
 
 export interface Client {
@@ -558,4 +577,4 @@ export async function updateProfessionalAppointmentStatus(
   });
 }
 
-export type { ApiResponse, AuthData };
+export type { ApiResponse };
