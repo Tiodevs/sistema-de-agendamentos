@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import { RegisterInput, LoginInput } from '../schemas/auth.schema';
+import { notifyWelcome } from './email.service';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -14,11 +15,9 @@ interface UserPayload {
 
 function generateToken(user: UserPayload): string {
   const expiresInSeconds = parseExpiresIn(JWT_EXPIRES_IN);
-  return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
-    JWT_SECRET,
-    { expiresIn: expiresInSeconds },
-  );
+  return jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, {
+    expiresIn: expiresInSeconds,
+  });
 }
 
 function parseExpiresIn(value: string): number {
@@ -27,11 +26,16 @@ function parseExpiresIn(value: string): number {
   const num = parseInt(match[1], 10);
   const unit = match[2];
   switch (unit) {
-    case 's': return num;
-    case 'm': return num * 60;
-    case 'h': return num * 3600;
-    case 'd': return num * 86400;
-    default: return 604800;
+    case 's':
+      return num;
+    case 'm':
+      return num * 60;
+    case 'h':
+      return num * 3600;
+    case 'd':
+      return num * 86400;
+    default:
+      return 604800;
   }
 }
 
@@ -59,6 +63,12 @@ export class AuthService {
     });
 
     const token = generateToken(user);
+
+    notifyWelcome({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    });
 
     return {
       user: {

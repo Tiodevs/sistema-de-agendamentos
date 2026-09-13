@@ -1,5 +1,6 @@
 import { prisma } from '../config/database';
 import { CreateAppointmentInput } from '../schemas/appointment.schema';
+import { notifyAppointmentCancelled, notifyAppointmentScheduled } from './email.service';
 import { ScheduleService } from './schedule.service';
 
 // Intervalo entre slots em minutos
@@ -8,7 +9,13 @@ const SLOT_INTERVAL = 15;
 const scheduleService = new ScheduleService();
 
 export class AppointmentService {
-  async findAll(filters?: { employeeId?: string; clientId?: string; status?: string; from?: string; to?: string }) {
+  async findAll(filters?: {
+    employeeId?: string;
+    clientId?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+  }) {
     const where: Record<string, unknown> = {};
 
     if (filters?.employeeId) where.employeeId = filters.employeeId;
@@ -64,7 +71,9 @@ export class AppointmentService {
     // Validar que o produto existe e está ativo
     const product = await prisma.product.findUnique({ where: { id: data.productId } });
     if (!product || !product.active) {
-      const error = new Error('Produto não encontrado ou inativo') as Error & { statusCode: number };
+      const error = new Error('Produto não encontrado ou inativo') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -72,7 +81,9 @@ export class AppointmentService {
     // Validar que o funcionário existe e está ativo
     const employee = await prisma.employee.findUnique({ where: { id: data.employeeId } });
     if (!employee || !employee.active) {
-      const error = new Error('Funcionário não encontrado ou inativo') as Error & { statusCode: number };
+      const error = new Error('Funcionário não encontrado ou inativo') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -82,7 +93,9 @@ export class AppointmentService {
       where: { employeeId_productId: { employeeId: data.employeeId, productId: data.productId } },
     });
     if (!assignment) {
-      const error = new Error('Este funcionário não atende este produto') as Error & { statusCode: number };
+      const error = new Error('Este funcionário não atende este produto') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -103,15 +116,14 @@ export class AppointmentService {
       where: {
         employeeId: data.employeeId,
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        AND: [
-          { date: { lt: endDate } },
-          { endDate: { gt: startDate } },
-        ],
+        AND: [{ date: { lt: endDate } }, { endDate: { gt: startDate } }],
       },
     });
 
     if (conflict) {
-      const error = new Error('O funcionário já possui um agendamento neste horário') as Error & { statusCode: number };
+      const error = new Error('O funcionário já possui um agendamento neste horário') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 409;
       throw error;
     }
@@ -133,19 +145,39 @@ export class AppointmentService {
       },
     });
 
-    return {
+    const mapped = {
       ...appointment,
       price: Number(appointment.price),
       product: { ...appointment.product, price: Number(appointment.product.price) },
     };
+
+    notifyAppointmentScheduled({
+      id: mapped.id,
+      date: mapped.date,
+      price: mapped.price,
+      notes: mapped.notes,
+      client: mapped.client,
+      product: mapped.product,
+      employee: mapped.employee,
+    });
+
+    return mapped;
   }
 
   async updateStatus(id: string, status: string) {
-    await this.findById(id);
+    const current = await this.findById(id);
 
     const appointment = await prisma.appointment.update({
       where: { id },
-      data: { status: status as 'SCHEDULED' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW' },
+      data: {
+        status: status as
+          | 'SCHEDULED'
+          | 'CONFIRMED'
+          | 'IN_PROGRESS'
+          | 'COMPLETED'
+          | 'CANCELLED'
+          | 'NO_SHOW',
+      },
       include: {
         client: { select: { id: true, name: true, email: true, phone: true } },
         product: { select: { id: true, name: true, duration: true, price: true } },
@@ -153,11 +185,25 @@ export class AppointmentService {
       },
     });
 
-    return {
+    const mapped = {
       ...appointment,
       price: Number(appointment.price),
       product: { ...appointment.product, price: Number(appointment.product.price) },
     };
+
+    if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
+      notifyAppointmentCancelled({
+        id: mapped.id,
+        date: mapped.date,
+        price: mapped.price,
+        notes: mapped.notes,
+        client: mapped.client,
+        product: mapped.product,
+        employee: mapped.employee,
+      });
+    }
+
+    return mapped;
   }
 
   async delete(id: string) {
@@ -173,7 +219,9 @@ export class AppointmentService {
     // Validar produto
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product?.active) {
-      const error = new Error('Produto não encontrado ou inativo') as Error & { statusCode: number };
+      const error = new Error('Produto não encontrado ou inativo') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -181,7 +229,9 @@ export class AppointmentService {
     // Validar funcionário
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee?.active) {
-      const error = new Error('Funcionário não encontrado ou inativo') as Error & { statusCode: number };
+      const error = new Error('Funcionário não encontrado ou inativo') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -191,7 +241,9 @@ export class AppointmentService {
       where: { employeeId_productId: { employeeId, productId } },
     });
     if (!assignment) {
-      const error = new Error('Este funcionário não atende este produto') as Error & { statusCode: number };
+      const error = new Error('Este funcionário não atende este produto') as Error & {
+        statusCode: number;
+      };
       error.statusCode = 400;
       throw error;
     }
@@ -224,9 +276,7 @@ export class AppointmentService {
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         date: { gte: dayStart },
         endDate: { lte: new Date(dayEnd.getTime() + 24 * 60 * 60 * 1000) },
-        AND: [
-          { date: { lt: dayEnd } },
-        ],
+        AND: [{ date: { lt: dayEnd } }],
       },
       orderBy: { date: 'asc' },
     });
