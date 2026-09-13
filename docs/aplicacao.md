@@ -1,6 +1,6 @@
 # Documentação técnica — Sistema de Agendamentos
 
-Sistema para estúdios/salões (marca **Sentier** na UI): clientes marcam serviços com profissionais, o admin opera o catálogo e a agenda, e o profissional acompanha os próprios atendimentos.
+Sistema para estúdios/salões (marca **Leemia** na UI): clientes marcam serviços com profissionais, o admin opera o catálogo e a agenda, e o profissional acompanha os próprios atendimentos.
 
 Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/sistema-de-agendamentos).
 
@@ -17,7 +17,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 
 ### Autenticação e contas
 
-- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 6) e telefone opcional.
+- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 6) e telefone opcional. Envia e-mail de boas-vindas (Resend).
 - Login com JWT (`Bearer`), validade configurável (`JWT_EXPIRES_IN`, padrão 7 dias).
 - Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`.
 - Redirecionamento pós-login por papel: admin → `/admin`, profissional → `/professional`, cliente → `/`.
@@ -34,8 +34,9 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Slots no passado, em conflito ou em dia fechado aparecem indisponíveis.
 - Observação opcional no agendamento.
 - Preço congelado no momento da reserva (cópia do preço do produto).
+- E-mail de confirmação ao cliente e aviso ao profissional na criação do agendamento.
 - Lista “Meus horários”.
-- Cancelamento apenas dos próprios agendamentos.
+- Cancelamento apenas dos próprios agendamentos (dispara e-mail de cancelamento).
 - Layout mobile-first (nav inferior, largura máx. ~`lg`).
 
 ### Área administrativa
@@ -81,7 +82,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 
 ### O que a aplicação **não** faz hoje
 
-- Pagamento, WhatsApp, e-mail ou SMS.
+- Pagamento, WhatsApp ou SMS.
 - Refresh token / logout server-side / 2FA.
 - Upload real de avatar (campo existe, sem storage).
 - Multi-empresa / multi-tenant.
@@ -261,6 +262,7 @@ Next.js 15 App Router, quase tudo **Client Components** (`'use client'`). Dados 
 | -------------------------------------- | -------------------------- |
 | `express`                              | HTTP                       |
 | `prisma` / `@prisma/client`            | ORM + migrate              |
+| `resend`                               | e-mail transacional        |
 | `@prisma/adapter-pg` + `pg`            | driver Postgres (Prisma 7) |
 | `bcryptjs`                             | hash de senha              |
 | `jsonwebtoken`                         | JWT                        |
@@ -292,13 +294,14 @@ Não há SDK Railway/Vercel no runtime da app: só HTTP + env.
 
 ## 9. Integrações e infraestrutura
 
-Não há gateways de pagamento, e-mail, storage ou analytics de produto no código. Integrações reais:
+Não há gateways de pagamento, WhatsApp, storage ou analytics de produto no código. Integrações reais:
 
 | Integração               | Uso                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------- |
 | **PostgreSQL (Railway)** | fonte da verdade                                                             |
 | **Railway**              | API + Postgres + volume 5 GB, região `us-east4-eqdc4a`, health `/api/health` |
 | **Vercel**               | Next, root `apps/web`, Node 24.x, `NEXT_PUBLIC_API_URL`                      |
+| **Resend**               | e-mail transacional (boas-vindas, agendamento, cancelamento)                 |
 | **GitHub**               | repo do frontend na Vercel; API **sem** `source.repo`                        |
 | **Railway CLI**          | `railway up`, `railway connect` (túnel)                                      |
 | **Prisma Migrate**       | schema no deploy                                                             |
@@ -313,7 +316,9 @@ IDs:
 
 Aliases web: `agendamento.mefelipe.com.br`, `sistema-de-agendamento-web.vercel.app`.
 
-Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=7d`, `RAILPACK_NODE_VERSION=20`.
+Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=7d`, `RAILPACK_NODE_VERSION=20`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, `EMAIL_ASSET_BASE_URL`.
+
+Remetente: `Leemia <agendamentos@mefelipe.com.br>` no domínio verificado `mefelipe.com.br` (região Resend `sa-east-1`). Templates HTML em `apps/api/src/emails/`, imagens em `apps/web/public/email/` e `apps/api/emails/static/`. O envio não bloqueia a API: falha de e-mail é só logada. Endereços `*@leemia.dev` (seed) são ignorados para não gerar bounce.
 
 Build Railway: `npm ci && npm run build --workspace=api`. Start: `npm run start --workspace=api`. Pre-deploy: `npm exec --workspace=api -- prisma migrate deploy`.
 
@@ -332,7 +337,7 @@ Seed (`apps/api/prisma/seed.ts`):
 
 - Promove `agedamentos.admin.felipe@gmail.com` a `ADMIN` (não altera senha).
 - Mantém `agendamento.felipe@gmail.com` como `USER`.
-- Cria profissionais `*@sentier.dev`, produtos, expediente, Natal fechado, 9 agendamentos `[seed]`.
+- Cria profissionais `*@leemia.dev`, produtos, expediente, Natal fechado, 9 agendamentos `[seed]`.
 - Senha das contas **fictícias**: `Senha@123`.
 
 Como local = produção no banco, o seed aparece no site publicado.
