@@ -28,6 +28,9 @@ function getBreadcrumb(pathname: string) {
   if (pathname.startsWith('/admin/employees')) {
     return { parent: 'Painel', current: 'Funcionários' };
   }
+  if (pathname.startsWith('/admin/profile')) {
+    return { parent: 'Painel', current: 'Perfil' };
+  }
   return { parent: 'Painel', current: 'Visão geral' };
 }
 
@@ -45,6 +48,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       isAuthorized={isAdmin}
       unauthorizedHref="/"
       notificationsHref="/admin/appointments"
+      profileHref="/admin/profile"
       cta={{ href: '/admin/appointments/new', label: 'Novo' }}
     >
       {children}

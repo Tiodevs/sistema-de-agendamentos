@@ -8,7 +8,7 @@ import {
   type Appointment,
   type AppointmentStatus,
 } from '@/lib/api';
-import { formatCurrency, formatDate, formatShortName, getInitials } from '@/lib/format';
+import { formatCurrency, formatDate, formatShortName } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -29,7 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/user-avatar';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import {
@@ -242,11 +242,12 @@ export default function AppointmentsPage() {
                     {formatTime(appointment.date)}
                   </span>
                 </div>
-                <Avatar className="hidden size-10 shrink-0 md:flex">
-                  <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
-                    {getInitials(appointment.client.name)}
-                  </AvatarFallback>
-                </Avatar>
+                <UserAvatar
+                  name={appointment.client.name}
+                  src={appointment.client.avatarUrl}
+                  className="hidden size-10 shrink-0 md:flex"
+                  fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                     <p className="min-w-0 truncate font-medium" title={appointment.client.name}>

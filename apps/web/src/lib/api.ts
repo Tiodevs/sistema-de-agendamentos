@@ -15,6 +15,7 @@ export interface AuthData {
     phone: string | null;
     role: string;
     employeeId: string | null;
+    avatarUrl: string | null;
     createdAt: string;
   };
   token: string;
@@ -42,7 +43,8 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   const url = `${API_BASE_URL}${endpoint}`;
   const headers = new Headers(options.headers);
 
-  if (options.body && !headers.has('Content-Type')) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (options.body && !isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -51,7 +53,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { cache: 'no-store', ...options, headers });
   let data: ApiResponse<T> | null = null;
   try {
     data = (await response.json()) as ApiResponse<T>;
@@ -94,12 +96,39 @@ export async function getMe(
   return apiRequest('/api/auth/me', { signal });
 }
 
+export async function updateMyProfile(body: {
+  name: string;
+  email: string;
+  phone?: string;
+}): Promise<ApiResponse<{ user: AuthData['user'] }>> {
+  return apiRequest('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function uploadMyAvatar(file: File): Promise<ApiResponse<{ user: AuthData['user'] }>> {
+  const body = new FormData();
+  body.append('avatar', file);
+  return apiRequest('/api/auth/profile/avatar', {
+    method: 'POST',
+    body,
+  });
+}
+
+export async function deleteMyAvatar(): Promise<ApiResponse<{ user: AuthData['user'] }>> {
+  return apiRequest('/api/auth/profile/avatar', {
+    method: 'DELETE',
+  });
+}
+
 export interface Client {
   id: string;
   name: string;
   email: string;
   phone: string | null;
   role: string;
+  avatarUrl?: string | null;
 }
 
 export async function getClients(search?: string): Promise<ApiResponse<{ clients: Client[] }>> {
@@ -270,9 +299,21 @@ export interface Appointment {
   status: AppointmentStatus;
   notes: string | null;
   price: number;
-  client: { id: string; name: string; email: string; phone: string | null };
+  client: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    avatarUrl?: string | null;
+  };
   product: { id: string; name: string; duration: number; price: number };
-  employee: { id: string; name: string; email: string; phone: string | null };
+  employee: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    avatar?: string | null;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -473,7 +514,23 @@ export async function deleteSpecialDay(id: string): Promise<ApiResponse<{ day: S
 
 /* ─── Dashboard ─── */
 
+export type DashboardPeriod = 'today' | 'week' | 'month' | 'last7' | 'last30';
+
 export interface DashboardData {
+  period?: {
+    key: DashboardPeriod;
+    label: string;
+    start: string;
+    end: string;
+    rangeLabel: string;
+    granularity: 'hour' | 'day' | 'week';
+    employeeId?: string | null;
+    productId?: string | null;
+  };
+  filters?: {
+    employees: Array<{ id: string; name: string }>;
+    products: Array<{ id: string; name: string }>;
+  };
   overview: {
     activeProducts: number;
     totalProducts: number;
@@ -484,8 +541,38 @@ export interface DashboardData {
     appointmentChange: number;
     monthRevenue: number;
     revenueChange: number;
+    totalAppointments?: number;
+    bookedAppointments?: number;
+    completedAppointments?: number;
+    cancelledAppointments?: number;
+    noShowAppointments?: number;
+    uniqueClients?: number;
+    completedRevenue?: number;
+    expectedRevenue?: number;
+    avgTicket?: number;
+    occupancyRate?: number;
+    occupancyMinutes?: number;
+    availableMinutes?: number;
+    completionRate?: number;
+    cancellationRate?: number;
+    noShowRate?: number;
+    todayCount?: number;
   };
   todayAppointments: Array<{
+    id: string;
+    date: string;
+    endDate: string;
+    status: AppointmentStatus;
+    client: { id: string; name: string };
+    product: { id: string; name: string; duration: number };
+    employee: { id: string; name: string };
+  }>;
+  todaySummary?: {
+    total: number;
+    remaining: number;
+    completed: number;
+  };
+  periodAppointments?: Array<{
     id: string;
     date: string;
     endDate: string;
@@ -506,8 +593,8 @@ export interface DashboardData {
     employee: { id: string; name: string };
     createdAt: string;
   }>;
-  topProducts: Array<{ productId: string; name: string; count: number }>;
-  topEmployees: Array<{ employeeId: string; name: string; count: number }>;
+  topProducts: Array<{ productId: string; name: string; count: number; revenue?: number }>;
+  topEmployees: Array<{ employeeId: string; name: string; count: number; revenue?: number }>;
   timeSpent?: {
     totalMinutes: number;
     completedMinutes: number;
@@ -515,13 +602,26 @@ export interface DashboardData {
   };
   weeklyActivity?: Array<{
     start: string;
+    label?: string;
+    tooltipLabel?: string;
     completedMinutes: number;
     scheduledMinutes: number;
+    completedCount?: number;
+    scheduledCount?: number;
   }>;
 }
 
-export async function getDashboardStats(): Promise<ApiResponse<DashboardData>> {
-  return apiRequest('/api/dashboard/stats');
+export async function getDashboardStats(params?: {
+  period?: DashboardPeriod;
+  employeeId?: string;
+  productId?: string;
+}): Promise<ApiResponse<DashboardData>> {
+  const searchParams = new URLSearchParams();
+  if (params?.period) searchParams.set('period', params.period);
+  if (params?.employeeId) searchParams.set('employeeId', params.employeeId);
+  if (params?.productId) searchParams.set('productId', params.productId);
+  const qs = searchParams.toString();
+  return apiRequest(`/api/dashboard/stats${qs ? `?${qs}` : ''}`);
 }
 
 /* ─── Professional ─── */

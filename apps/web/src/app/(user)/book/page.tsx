@@ -10,14 +10,14 @@ import {
   type Employee,
   type AvailabilitySlot,
 } from '@/lib/api';
-import { formatCurrency, formatDuration, getInitials } from '@/lib/format';
+import { formatCurrency, formatDuration } from '@/lib/format';
 import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/user-avatar';
 import { Separator } from '@/components/ui/separator';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { BookingDatePicker } from '@/components/booking/date-picker';
@@ -328,11 +328,12 @@ export default function BookPage() {
                           selected && 'ring-2 ring-[var(--admin-accent)]',
                         )}
                       >
-                        <Avatar className="size-12">
-                          <AvatarFallback className="bg-[var(--admin-chip)] text-sm">
-                            {getInitials(employee.name)}
-                          </AvatarFallback>
-                        </Avatar>
+                        <UserAvatar
+                          name={employee.name}
+                          src={employee.avatar}
+                          className="size-12"
+                          fallbackClassName="bg-[var(--admin-chip)] text-sm"
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold">{employee.name}</p>
                           {employee.phone ? (

@@ -17,6 +17,9 @@ function getBreadcrumb(pathname: string) {
   if (pathname.startsWith('/appointments')) {
     return { parent: 'Painel', current: 'Meus horários' };
   }
+  if (pathname.startsWith('/profile')) {
+    return { parent: 'Painel', current: 'Perfil' };
+  }
   return { parent: 'Painel', current: 'Início' };
 }
 
@@ -34,6 +37,7 @@ export function UserShell({ children }: { children: ReactNode }) {
       isAuthorized={isClientUser}
       unauthorizedHref="/admin"
       notificationsHref="/appointments"
+      profileHref="/profile"
       cta={{ href: '/book', label: 'Novo' }}
     >
       {children}

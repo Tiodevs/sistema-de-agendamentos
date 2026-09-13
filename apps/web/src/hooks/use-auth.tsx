@@ -17,6 +17,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (user: User, token: string) => void;
   logout: () => void;
+  updateUser: (user: User) => void;
   refreshUser: () => Promise<void>;
 }
 
@@ -33,6 +34,7 @@ function toUser(value: User): User {
     phone: extra.phone,
     role: extra.role,
     employeeId: extra.employeeId ?? extra.employee?.id ?? null,
+    avatarUrl: extra.avatarUrl ?? null,
     createdAt: extra.createdAt,
   };
 }
@@ -102,6 +104,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applySession(null);
   }, [applySession]);
 
+  const updateUser = useCallback(
+    (userData: User) => {
+      if (!cachedSession?.token) return;
+      applySession({ user: userData, token: cachedSession.token });
+    },
+    [applySession],
+  );
+
   const refreshUser = useCallback(async () => {
     try {
       const response = await getMe();
@@ -148,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user && !!token,
         login,
         logout,
+        updateUser,
         refreshUser,
       }}
     >

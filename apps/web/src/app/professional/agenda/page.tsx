@@ -7,12 +7,12 @@ import {
   type Appointment,
   type AppointmentStatus,
 } from '@/lib/api';
-import { formatCurrency, formatDateShort, getInitials } from '@/lib/format';
+import { formatCurrency, formatDateShort } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/user-avatar';
 import {
   Dialog,
   DialogContent,
@@ -301,11 +301,12 @@ export default function ProfessionalAgendaPage() {
                             {formatTime(appointment.date)}
                           </span>
                         </div>
-                        <Avatar className="hidden size-10 shrink-0 sm:flex">
-                          <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
-                            {getInitials(appointment.client?.name || '')}
-                          </AvatarFallback>
-                        </Avatar>
+                        <UserAvatar
+                          name={appointment.client?.name || ''}
+                          src={appointment.client?.avatarUrl}
+                          className="hidden size-10 shrink-0 sm:flex"
+                          fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-medium">{appointment.client?.name}</p>

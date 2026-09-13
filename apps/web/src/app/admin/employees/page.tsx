@@ -13,7 +13,6 @@ import {
   type EmployeePayload,
   type Product,
 } from '@/lib/api';
-import { getInitials } from '@/lib/format';
 import { accentForId } from '@/lib/admin-accents';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -25,8 +24,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { UserAvatar } from '@/components/user-avatar';
 import { EmployeeDialog } from '@/components/admin/employee-dialog';
 import { DeleteEmployeeDialog } from '@/components/admin/delete-employee-dialog';
 import { AssignProductsDialog } from '@/components/admin/assign-products-dialog';
@@ -263,11 +262,12 @@ export default function EmployeesPage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <Avatar className="mb-5 size-16">
-                    <AvatarFallback className={cn('text-lg', accent.bg, accent.fg)}>
-                      {getInitials(employee.name)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    name={employee.name}
+                    src={employee.avatar}
+                    className="mb-5 size-16"
+                    fallbackClassName={cn('text-lg', accent.bg, accent.fg)}
+                  />
                   <p className="text-xs text-muted-foreground">
                     {employee.active ? 'Profissional' : 'Inativo'}
                   </p>

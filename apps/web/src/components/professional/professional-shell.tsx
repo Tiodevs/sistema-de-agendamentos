@@ -13,6 +13,9 @@ function getBreadcrumb(pathname: string) {
   if (pathname.startsWith('/professional/agenda')) {
     return { parent: 'Painel', current: 'Agenda' };
   }
+  if (pathname.startsWith('/professional/profile')) {
+    return { parent: 'Painel', current: 'Perfil' };
+  }
   return { parent: 'Painel', current: 'Visão geral' };
 }
 
@@ -34,6 +37,7 @@ export function ProfessionalShell({ children }: { children: ReactNode }) {
       isAuthorized={isProfessional}
       unauthorizedHref={getUnauthorizedHref}
       notificationsHref="/professional/agenda"
+      profileHref="/professional/profile"
     >
       {children}
     </AppShell>

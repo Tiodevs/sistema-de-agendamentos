@@ -12,7 +12,7 @@ import {
   type Client,
   type AvailabilitySlot,
 } from '@/lib/api';
-import { formatCurrency, formatDuration, getInitials } from '@/lib/format';
+import { formatCurrency, formatDuration } from '@/lib/format';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { UserAvatar } from '@/components/user-avatar';
 import { Separator } from '@/components/ui/separator';
 import { BookingDatePicker } from '@/components/booking/date-picker';
 import {
@@ -344,11 +344,12 @@ export default function NewAppointmentPage() {
                       )}
                       data-motion="lift"
                     >
-                      <Avatar className="size-10">
-                        <AvatarFallback className="text-xs">
-                          {getInitials(employee.name)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <UserAvatar
+                        name={employee.name}
+                        src={employee.avatar}
+                        className="size-10"
+                        fallbackClassName="text-xs"
+                      />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{employee.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{employee.email}</p>
@@ -463,11 +464,12 @@ export default function NewAppointmentPage() {
                               : 'hover:bg-background/60',
                           )}
                         >
-                          <Avatar className="size-6 shrink-0">
-                            <AvatarFallback className="text-[10px]">
-                              {getInitials(client.name)}
-                            </AvatarFallback>
-                          </Avatar>
+                          <UserAvatar
+                            name={client.name}
+                            src={client.avatarUrl}
+                            className="size-6 shrink-0"
+                            fallbackClassName="text-[10px]"
+                          />
                           <div className="min-w-0 flex-1 overflow-hidden">
                             <p className="truncate text-sm font-medium">{client.name}</p>
                             <p className="truncate text-[11px] text-muted-foreground">

@@ -13,13 +13,13 @@ import {
   Share2,
   Moon,
   Sun,
+  UserRound,
   X,
   type LucideIcon,
 } from 'lucide-react';
 import { BRAND_NAME, Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetClose, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { getInitials } from '@/lib/format';
+import { UserAvatar } from '@/components/user-avatar';
 import { AdminThemeToggle } from '@/components/admin/theme-toggle';
 import { useAdminTheme } from '@/components/admin/admin-theme';
 
@@ -103,13 +103,18 @@ function NavLinks({
 
 function UserMenu({
   userName,
+  userAvatarUrl,
   roleLabel,
+  profileHref,
   onLogout,
 }: {
   userName: string;
+  userAvatarUrl?: string | null;
   roleLabel: string;
+  profileHref: string;
   onLogout: () => void;
 }) {
+  const router = useRouter();
   const { theme, toggleTheme, mounted } = useAdminTheme();
   const isDark = theme === 'dark';
 
@@ -121,11 +126,12 @@ function UserMenu({
           className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-white/30"
           aria-label="Menu do usuário"
         >
-          <Avatar className="size-10">
-            <AvatarFallback className="bg-white/10 text-xs text-white">
-              {getInitials(userName)}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar
+            name={userName}
+            src={userAvatarUrl}
+            className="size-10"
+            fallbackClassName="bg-white/10 text-xs text-white"
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="center" side="top" className="w-52 rounded-2xl">
@@ -134,6 +140,10 @@ function UserMenu({
           <p className="text-xs text-muted-foreground">{roleLabel}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => router.push(profileHref)}>
+          <UserRound className="size-4" />
+          Perfil
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={toggleTheme} disabled={!mounted}>
           {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           {isDark ? 'Modo claro' : 'Modo escuro'}
@@ -156,6 +166,7 @@ export function AppShell({
   isAuthorized,
   unauthorizedHref,
   notificationsHref,
+  profileHref,
   cta,
 }: {
   children: ReactNode;
@@ -166,6 +177,7 @@ export function AppShell({
   isAuthorized: (user: AppShellUser) => boolean;
   unauthorizedHref: string | ((user: AppShellUser) => string);
   notificationsHref: string;
+  profileHref: string;
   cta?: AppShellCta;
 }) {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
@@ -230,7 +242,13 @@ export function AppShell({
           <div className="min-h-0 flex-1">
             <NavLinks pathname={pathname} items={navItems} />
           </div>
-          <UserMenu userName={user.name} roleLabel={roleLabel} onLogout={handleLogout} />
+          <UserMenu
+            userName={user.name}
+            userAvatarUrl={user.avatarUrl}
+            roleLabel={roleLabel}
+            profileHref={profileHref}
+            onLogout={handleLogout}
+          />
         </aside>
 
         <section className="admin-panel min-h-[calc(100dvh-1.5rem)] min-w-0 flex-1 rounded-[28px] sm:min-h-[calc(100dvh-2rem)] sm:rounded-[32px] lg:min-h-[calc(100dvh-2.5rem)]">
