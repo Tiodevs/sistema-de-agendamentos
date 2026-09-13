@@ -18,8 +18,8 @@ export const STATUS_CONFIG: Record<
   },
   IN_PROGRESS: {
     label: 'Em andamento',
-    color: 'text-[#00DDB2]',
-    dotColor: 'bg-[#00DDB2]',
+    color: 'text-[#34C3DD]',
+    dotColor: 'bg-[#34C3DD]',
     badge: 'default',
   },
   COMPLETED: {

@@ -8,7 +8,7 @@ export function StatusBadge({ status }: { status: AppointmentStatus }) {
   return (
     <Badge
       variant="outline"
-      className={cn('rounded-full border-border px-2.5 font-medium', config.color)}
+      className={cn('shrink-0 rounded-full border-border px-2.5 font-medium', config.color)}
     >
       {config.label}
     </Badge>

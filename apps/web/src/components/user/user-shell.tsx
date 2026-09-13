@@ -24,10 +24,6 @@ function isClientUser(user: { role: string }) {
   return user.role !== 'ADMIN';
 }
 
-function searchHref(query: string) {
-  return query ? `/appointments?q=${encodeURIComponent(query)}` : '/appointments';
-}
-
 export function UserShell({ children }: { children: ReactNode }) {
   return (
     <AppShell
@@ -37,8 +33,6 @@ export function UserShell({ children }: { children: ReactNode }) {
       getBreadcrumb={getBreadcrumb}
       isAuthorized={isClientUser}
       unauthorizedHref="/admin"
-      searchHref={searchHref}
-      searchPlaceholder="Buscar horários"
       notificationsHref="/appointments"
       cta={{ href: '/book', label: 'Novo' }}
     >

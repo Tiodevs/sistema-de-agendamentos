@@ -36,11 +36,14 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
+  AlertCircle,
   CalendarDays,
+  CheckCircle2,
   PartyPopper,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 function formatDateBR(dateStr: string): string {
   const date = new Date(dateStr + 'T12:00:00');
@@ -189,13 +192,7 @@ export default function SchedulePage() {
       })),
     );
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   const upcomingDays = specialDays.filter(
     (d) => new Date(d.date) >= new Date(new Date().toISOString().split('T')[0]),
@@ -205,13 +202,15 @@ export default function SchedulePage() {
   );
 
   return (
-    <div className="space-y-5">
-      <AdminPageHeader
-        title="Horários e feriados"
-        description="Expediente da semana e dias com regra especial."
-      />
+    <StaggerIn selector="[data-motion='enter']" className="space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Horários e feriados"
+          description="Expediente da semana e dias com regra especial."
+        />
+      </div>
 
-      <div className="admin-surface flex gap-1 p-1.5">
+      <div data-motion="enter" className="admin-surface flex gap-1 p-1.5">
         <button
           onClick={() => setActiveTab('hours')}
           className={cn(
@@ -245,7 +244,7 @@ export default function SchedulePage() {
 
       {/* ─── Business Hours Tab ─── */}
       {activeTab === 'hours' && (
-        <Card>
+        <Card data-motion="enter" className="overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="size-5" />
@@ -256,95 +255,104 @@ export default function SchedulePage() {
               poderão agendar dentro desses horários.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-1">
-            {editHours.map((hour, i) => {
-              const dayNames = [
-                'Domingo',
-                'Segunda-feira',
-                'Terça-feira',
-                'Quarta-feira',
-                'Quinta-feira',
-                'Sexta-feira',
-                'Sábado',
-              ];
-              const dayAbbr = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-              return (
-                <div
-                  key={hour.dayOfWeek}
-                  className={cn(
-                    'flex items-center gap-4 rounded-2xl border px-4 py-3 transition-colors',
-                    hour.isClosed ? 'bg-muted/30 border-dashed' : 'border-border',
-                  )}
-                >
-                  {/* Day label */}
-                  <div className="w-10 shrink-0">
-                    <Badge
-                      variant={hour.isClosed ? 'outline' : 'default'}
-                      className="w-full justify-center text-[10px]"
-                    >
-                      {dayAbbr[hour.dayOfWeek]}
-                    </Badge>
-                  </div>
-                  <span className="hidden w-32 text-sm font-medium sm:inline">
-                    {dayNames[hour.dayOfWeek]}
-                  </span>
-
-                  {/* Closed toggle */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={!hour.isClosed}
-                      onCheckedChange={(checked) => updateHour(i, 'isClosed', !checked)}
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {hour.isClosed ? 'Fechado' : 'Aberto'}
-                    </span>
-                  </div>
-
-                  {/* Time inputs */}
-                  {!hour.isClosed && (
-                    <div className="flex flex-1 items-center gap-2">
-                      <Input
-                        type="time"
-                        value={hour.openTime}
-                        onChange={(e) => updateHour(i, 'openTime', e.target.value)}
-                        className="h-9 w-28 text-sm"
-                      />
-                      <span className="text-xs text-muted-foreground">até</span>
-                      <Input
-                        type="time"
-                        value={hour.closeTime}
-                        onChange={(e) => updateHour(i, 'closeTime', e.target.value)}
-                        className="h-9 w-28 text-sm"
-                      />
+          <CardContent className="min-w-0 space-y-1">
+            <StaggerIn replayKey="hours" selector="[data-row]">
+              {editHours.map((hour, i) => {
+                const dayNames = [
+                  'Domingo',
+                  'Segunda-feira',
+                  'Terça-feira',
+                  'Quarta-feira',
+                  'Quinta-feira',
+                  'Sexta-feira',
+                  'Sábado',
+                ];
+                const dayAbbr = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
+                return (
+                  <div
+                    key={hour.dayOfWeek}
+                    data-row
+                    data-motion="lift"
+                    className={cn(
+                      'flex flex-col gap-3 rounded-2xl border p-3 transition-colors md:flex-row md:items-center md:gap-4 md:px-4 md:py-3',
+                      hour.isClosed ? 'bg-muted/30 border-dashed' : 'border-border',
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="w-10 shrink-0">
+                        <Badge
+                          variant={hour.isClosed ? 'outline' : 'default'}
+                          className="w-full justify-center text-[10px]"
+                        >
+                          {dayAbbr[hour.dayOfWeek]}
+                        </Badge>
+                      </div>
+                      <span className="hidden w-32 shrink-0 text-sm font-medium md:inline">
+                        {dayNames[hour.dayOfWeek]}
+                      </span>
+                      <div className="ml-auto flex items-center gap-2 md:ml-0">
+                        <Switch
+                          checked={!hour.isClosed}
+                          onCheckedChange={(checked) => updateHour(i, 'isClosed', !checked)}
+                        />
+                        <span className="w-14 text-xs text-muted-foreground">
+                          {hour.isClosed ? 'Fechado' : 'Aberto'}
+                        </span>
+                      </div>
                     </div>
-                  )}
 
-                  {hour.isClosed && (
-                    <div className="flex flex-1 items-center gap-2 text-sm text-muted-foreground">
-                      <CalendarOff className="size-4" />
-                      Não aceita agendamentos
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    {!hour.isClosed ? (
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 md:ml-auto md:flex md:w-auto">
+                        <Input
+                          type="time"
+                          value={hour.openTime}
+                          onChange={(e) => updateHour(i, 'openTime', e.target.value)}
+                          className="h-9 min-w-0 px-2 text-sm md:w-32 md:flex-none"
+                        />
+                        <span className="text-xs text-muted-foreground">até</span>
+                        <Input
+                          type="time"
+                          value={hour.closeTime}
+                          onChange={(e) => updateHour(i, 'closeTime', e.target.value)}
+                          className="h-9 min-w-0 px-2 text-sm md:w-32 md:flex-none"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                        <CalendarOff className="size-4 shrink-0" />
+                        <span className="leading-snug">Não aceita agendamentos</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </StaggerIn>
 
             <Separator className="my-4" />
 
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                {hasChanges ? '⚠️ Alterações não salvas' : '✅ Tudo salvo'}
-              </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                role="status"
+                className={cn(
+                  'inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium',
+                  hasChanges
+                    ? 'bg-amber-500/10 text-amber-500'
+                    : 'bg-emerald-500/10 text-emerald-500',
+                )}
+              >
+                {hasChanges ? (
+                  <AlertCircle className="size-4 shrink-0" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                )}
+                <span>{hasChanges ? 'Alterações pendentes' : 'Horários salvos'}</span>
+              </div>
               <Button
                 onClick={handleSaveHours}
                 disabled={!hasChanges || saving}
-                className="rounded-full"
+                className="w-full rounded-full sm:w-auto"
               >
-                {saving ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 size-4" />
-                )}
+                {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                 Salvar Horários
               </Button>
             </div>
@@ -354,8 +362,8 @@ export default function SchedulePage() {
 
       {/* ─── Special Days Tab ─── */}
       {activeTab === 'special' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <StaggerIn replayKey="special" selector="[data-motion='enter']" className="space-y-4">
+          <div data-motion="enter" className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold">Feriados e Dias Especiais</h2>
               <p className="text-sm text-muted-foreground">
@@ -370,7 +378,7 @@ export default function SchedulePage() {
 
           {/* Upcoming special days */}
           {upcomingDays.length > 0 && (
-            <Card>
+            <Card data-motion="enter">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Próximos</CardTitle>
               </CardHeader>
@@ -378,6 +386,7 @@ export default function SchedulePage() {
                 {upcomingDays.map((day) => (
                   <div
                     key={day.id}
+                    data-motion="lift"
                     className={cn(
                       'flex items-center gap-4 rounded-lg border px-4 py-3',
                       day.isClosed
@@ -430,7 +439,7 @@ export default function SchedulePage() {
 
           {/* Past special days */}
           {pastDays.length > 0 && (
-            <Card>
+            <Card data-motion="enter">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base text-muted-foreground">Passados</CardTitle>
               </CardHeader>
@@ -438,6 +447,7 @@ export default function SchedulePage() {
                 {pastDays.map((day) => (
                   <div
                     key={day.id}
+                    data-motion="lift"
                     className="flex items-center gap-4 rounded-lg border border-dashed px-4 py-3 opacity-60"
                   >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
@@ -464,7 +474,10 @@ export default function SchedulePage() {
           )}
 
           {specialDays.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16">
+            <div
+              data-motion="enter"
+              className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16"
+            >
               <PartyPopper className="mb-3 size-12 text-muted-foreground/30" />
               <p className="mb-1 text-sm font-medium text-muted-foreground">
                 Nenhum dia especial cadastrado
@@ -475,7 +488,7 @@ export default function SchedulePage() {
               </p>
             </div>
           )}
-        </div>
+        </StaggerIn>
       )}
 
       {/* ─── New Special Day Dialog ─── */}
@@ -602,6 +615,6 @@ export default function SchedulePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </StaggerIn>
   );
 }

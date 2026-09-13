@@ -30,17 +30,9 @@ import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { EmployeeDialog } from '@/components/admin/employee-dialog';
 import { DeleteEmployeeDialog } from '@/components/admin/delete-employee-dialog';
 import { AssignProductsDialog } from '@/components/admin/assign-products-dialog';
-import {
-  Plus,
-  Search,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  Loader2,
-  Users,
-  Package,
-} from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Users, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -142,34 +134,30 @@ export default function EmployeesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return (
-    <div className="space-y-5">
-      <AdminPageHeader
-        title="Funcionários"
-        description="Profissionais e os serviços que cada um realiza."
-        action={
-          <Button
-            className="rounded-full"
-            onClick={() => {
-              setEditingEmployee(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="size-4" />
-            Novo Funcionário
-          </Button>
-        }
-      />
+    <StaggerIn selector="[data-motion='enter']" className="space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Funcionários"
+          description="Profissionais e os serviços que cada um realiza."
+          action={
+            <Button
+              className="rounded-full"
+              onClick={() => {
+                setEditingEmployee(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="size-4" />
+              Novo Funcionário
+            </Button>
+          }
+        />
+      </div>
 
-      <section className="admin-surface p-4 sm:p-5">
+      <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 overflow-x-auto text-sm">
             {(
@@ -216,12 +204,13 @@ export default function EmployeesPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <StaggerIn className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filteredEmployees.map((employee) => {
               const accent = accentForId(employee.id);
               return (
                 <article
                   key={employee.id}
+                  data-motion="lift"
                   className={cn(
                     'relative rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4',
                     !employee.active && 'opacity-60',
@@ -287,7 +276,7 @@ export default function EmployeesPage() {
                 </article>
               );
             })}
-          </div>
+          </StaggerIn>
         )}
       </section>
 
@@ -310,6 +299,6 @@ export default function EmployeesPage() {
         allProducts={products}
         onSubmit={handleAssignProducts}
       />
-    </div>
+    </StaggerIn>
   );
 }

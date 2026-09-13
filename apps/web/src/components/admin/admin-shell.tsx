@@ -35,10 +35,6 @@ function isAdmin(user: { role: string }) {
   return user.role === 'ADMIN';
 }
 
-function searchHref(query: string) {
-  return query ? `/admin/appointments?q=${encodeURIComponent(query)}` : '/admin/appointments';
-}
-
 export function AdminShell({ children }: { children: ReactNode }) {
   return (
     <AppShell
@@ -48,7 +44,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
       getBreadcrumb={getBreadcrumb}
       isAuthorized={isAdmin}
       unauthorizedHref="/"
-      searchHref={searchHref}
       notificationsHref="/admin/appointments"
       cta={{ href: '/admin/appointments/new', label: 'Novo' }}
     >

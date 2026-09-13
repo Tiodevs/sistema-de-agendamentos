@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export const ADMIN_ACCENTS = [
-  { bg: 'bg-[#00DDB2]/15', fg: 'text-[#00DDB2]', solid: 'bg-[#00DDB2]' },
+  { bg: 'bg-[#34C3DD]/15', fg: 'text-[#34C3DD]', solid: 'bg-[#34C3DD]' },
   { bg: 'bg-violet-500/15', fg: 'text-violet-400', solid: 'bg-violet-500' },
   { bg: 'bg-sky-500/15', fg: 'text-sky-400', solid: 'bg-sky-500' },
   { bg: 'bg-orange-400/15', fg: 'text-orange-400', solid: 'bg-orange-400' },

@@ -17,10 +17,10 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { BookingDatePicker } from '@/components/booking/date-picker';
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,10 +30,9 @@ import {
   Package,
   User,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 type Step = 1 | 2 | 3;
 
@@ -56,25 +55,6 @@ function formatDateBR(dateStr: string): string {
   return `${day}/${month}/${year}`;
 }
 
-function getDayName(dateStr: string): string {
-  const date = new Date(`${dateStr}T12:00:00`);
-  return date.toLocaleDateString('pt-BR', { weekday: 'short' });
-}
-
-function getNextDays(count: number, startOffset = 0): string[] {
-  const days: string[] = [];
-  const today = new Date();
-  for (let i = startOffset; i < startOffset + count; i += 1) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    days.push(`${yyyy}-${mm}-${dd}`);
-  }
-  return days;
-}
-
 export default function BookPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
@@ -92,9 +72,6 @@ export default function BookPage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [notes, setNotes] = useState('');
-
-  const [dayOffset, setDayOffset] = useState(0);
-  const visibleDays = getNextDays(7, dayOffset);
 
   useEffect(() => {
     async function loadProducts() {
@@ -208,30 +185,25 @@ export default function BookPage() {
 
   const canGoNext = (step === 1 && selectedProduct) || (step === 2 && selectedEmployee) || false;
   const canSubmit = selectedProduct && selectedEmployee && selectedSlot;
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   const availableSlots = slots.filter((slot) => slot.available);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      <AdminPageHeader
-        title="Novo agendamento"
-        description="Escolha o serviço, o profissional e o horário."
-      />
+    <StaggerIn selector="[data-motion='enter']" className="mx-auto max-w-4xl space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Novo agendamento"
+          description="Escolha o serviço, o profissional e o horário."
+        />
+      </div>
 
-      <div className="admin-surface flex items-center gap-2 p-2 sm:p-3">
+      <div data-motion="enter" className="admin-surface flex items-center px-3 py-2">
         {([1, 2, 3] as Step[]).map((s) => (
-          <div key={s} className="flex flex-1 items-center gap-2">
+          <div key={s} className={cn('flex items-center gap-2', s < 3 && 'min-w-0 flex-1')}>
             <div
               className={cn(
-                'flex size-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
+                'flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors',
                 s <= step
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-[var(--admin-card-muted)] text-muted-foreground',
@@ -241,311 +213,271 @@ export default function BookPage() {
             </div>
             <span
               className={cn(
-                'hidden text-sm font-medium sm:inline',
+                'hidden shrink-0 text-sm font-medium sm:inline',
                 s === step ? 'text-foreground' : 'text-muted-foreground',
               )}
             >
               {STEP_LABELS[s]}
             </span>
-            {s < 3 ? <Separator className="hidden flex-1 sm:block" /> : null}
+            {s < 3 ? <Separator className="flex-1" /> : null}
           </div>
         ))}
       </div>
 
       {step === 1 ? (
-        <section className="admin-surface p-5 sm:p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <Package className="size-5" />
-            <div>
-              <h2 className="font-semibold">Qual serviço você deseja?</h2>
-              <p className="text-sm text-muted-foreground">Toque em um serviço para continuar.</p>
-            </div>
-          </div>
-          {products.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
-              <Package className="mb-3 size-10 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">Nenhum serviço disponível no momento.</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {products.map((product) => {
-                const accent = accentForProduct(product.name);
-                const Icon = iconForProduct(product.name);
-                const selected = selectedProduct?.id === product.id;
-                return (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => setSelectedProduct(product)}
-                    className={cn(
-                      'rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
-                      selected && 'ring-2 ring-[var(--admin-accent)]',
-                    )}
-                  >
-                    <div className="mb-5 flex items-start justify-between gap-3">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-chip)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                        {formatDuration(product.duration)}
-                      </span>
-                      <span className="text-sm font-semibold">{formatCurrency(product.price)}</span>
-                    </div>
-                    <div
-                      className={cn(
-                        'mb-5 flex size-16 items-center justify-center rounded-3xl',
-                        accent.bg,
-                      )}
-                    >
-                      <Icon className={cn('size-8', accent.fg)} />
-                    </div>
-                    <p className="font-semibold leading-snug">{product.name}</p>
-                    {product.description ? (
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {product.description}
-                      </p>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {step === 2 ? (
-        <section className="admin-surface p-5 sm:p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <User className="size-5" />
-            <div>
-              <h2 className="font-semibold">Escolha o profissional</h2>
-              <p className="text-sm text-muted-foreground">
-                Disponíveis para {selectedProduct?.name}.
-              </p>
-            </div>
-          </div>
-          {employees.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
-              <User className="mb-3 size-10 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">
-                Nenhum profissional disponível para este serviço.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {employees.map((employee) => {
-                const selected = selectedEmployee?.id === employee.id;
-                return (
-                  <button
-                    key={employee.id}
-                    type="button"
-                    onClick={() => setSelectedEmployee(employee)}
-                    className={cn(
-                      'flex items-center gap-3 rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
-                      selected && 'ring-2 ring-[var(--admin-accent)]',
-                    )}
-                  >
-                    <Avatar className="size-12">
-                      <AvatarFallback className="bg-[var(--admin-chip)] text-sm">
-                        {getInitials(employee.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold">{employee.name}</p>
-                      {employee.phone ? (
-                        <p className="text-sm text-muted-foreground">{employee.phone}</p>
-                      ) : null}
-                    </div>
-                    {selected ? (
-                      <div className="flex size-7 items-center justify-center rounded-full bg-[var(--admin-accent)] text-[var(--admin-accent-foreground)]">
-                        <Check className="size-3.5" />
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {step === 3 ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <section className="admin-surface p-5 sm:p-6 lg:col-span-2">
-            <div className="mb-5 flex items-center gap-2">
-              <CalendarDays className="size-5" />
-              <div>
-                <h2 className="font-semibold">Data e horário</h2>
-                <p className="text-sm text-muted-foreground">
-                  {selectedEmployee?.name} · {selectedProduct?.name}
-                </p>
+        <div data-motion="enter">
+          <StaggerIn key="step-1" selector="[data-motion='lift']">
+            <section className="admin-surface p-5 sm:p-6">
+              <div className="mb-5 flex items-center gap-2">
+                <Package className="size-5" />
+                <div>
+                  <h2 className="font-semibold">Qual serviço você deseja?</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Toque em um serviço para continuar.
+                  </p>
+                </div>
               </div>
-            </div>
-
-            <div className="mb-5 flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 shrink-0 rounded-2xl"
-                onClick={() => setDayOffset(Math.max(0, dayOffset - 7))}
-                disabled={dayOffset === 0}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <ScrollArea className="flex-1">
-                <div className="flex gap-2">
-                  {visibleDays.map((day) => {
-                    const isSelected = selectedDate === day;
-                    const isToday = day === getNextDays(1, 0)[0];
+              {products.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
+                  <Package className="mb-3 size-10 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum serviço disponível no momento.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {products.map((product) => {
+                    const accent = accentForProduct(product.name);
+                    const Icon = iconForProduct(product.name);
+                    const selected = selectedProduct?.id === product.id;
                     return (
                       <button
-                        key={day}
+                        key={product.id}
                         type="button"
-                        onClick={() => setSelectedDate(day)}
+                        onClick={() => setSelectedProduct(product)}
+                        data-motion="lift"
                         className={cn(
-                          'flex min-w-[72px] flex-col items-center gap-0.5 rounded-2xl px-3 py-2.5 text-center transition-colors',
-                          isSelected
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
+                          'rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
+                          selected && 'ring-2 ring-[var(--admin-accent)]',
                         )}
                       >
-                        <span
+                        <div className="mb-5 flex items-start justify-between gap-3">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--admin-chip)] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                            {formatDuration(product.duration)}
+                          </span>
+                          <span className="text-sm font-semibold">
+                            {formatCurrency(product.price)}
+                          </span>
+                        </div>
+                        <div
                           className={cn(
-                            'text-[11px] uppercase',
-                            isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground',
+                            'mb-5 flex size-16 items-center justify-center rounded-3xl',
+                            accent.bg,
                           )}
                         >
-                          {getDayName(day).replace('.', '')}
-                        </span>
-                        <span className="text-sm font-semibold">
-                          {formatDateBR(day).slice(0, 5)}
-                        </span>
-                        {isToday ? (
-                          <span
-                            className={cn(
-                              'text-[10px] font-medium',
-                              isSelected
-                                ? 'text-primary-foreground/80'
-                                : 'text-[var(--admin-accent)]',
-                            )}
-                          >
-                            Hoje
-                          </span>
+                          <Icon className={cn('size-8', accent.fg)} />
+                        </div>
+                        <p className="font-semibold leading-snug">{product.name}</p>
+                        {product.description ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {product.description}
+                          </p>
                         ) : null}
                       </button>
                     );
                   })}
                 </div>
-              </ScrollArea>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 shrink-0 rounded-2xl"
-                onClick={() => setDayOffset(dayOffset + 7)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-
-            {slotsLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : dayClosed ? (
-              <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
-                <CalendarDays className="mb-2 size-8 text-muted-foreground/40" />
-                <p className="text-sm font-medium">Fechado neste dia</p>
-                <p className="text-xs text-muted-foreground">Escolha outra data para continuar.</p>
-              </div>
-            ) : availableSlots.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
-                <Clock className="mb-2 size-8 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  Nenhum horário disponível neste dia.
-                </p>
-              </div>
-            ) : (
-              <>
-                <p className="mb-3 text-sm text-muted-foreground">
-                  {availableSlots.length} horário{availableSlots.length !== 1 ? 's' : ''} disponível
-                  {availableSlots.length !== 1 ? 'is' : ''}
-                </p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-                  {availableSlots.map((slot) => (
-                    <button
-                      key={slot.start}
-                      type="button"
-                      onClick={() => setSelectedSlot(slot)}
-                      className={cn(
-                        'rounded-2xl px-2 py-3 text-sm font-semibold transition-colors',
-                        selectedSlot?.start === slot.start
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
-                      )}
-                    >
-                      {formatSlotTime(slot.start)}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="mt-5 space-y-2">
-              <Label htmlFor="notes" className="text-sm text-muted-foreground">
-                Observações <span className="text-muted-foreground/60">(opcional)</span>
-              </Label>
-              <Textarea
-                id="notes"
-                placeholder="Alguma informação adicional..."
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                rows={2}
-                className="resize-none rounded-2xl text-sm"
-              />
-            </div>
-          </section>
-
-          <section className="admin-surface p-5 sm:p-6">
-            <h2 className="font-semibold">Resumo</h2>
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Serviço</span>
-                <span className="text-right font-medium">{selectedProduct?.name}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Profissional</span>
-                <span className="text-right font-medium">{selectedEmployee?.name}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Data</span>
-                <span className="text-right font-medium">
-                  {selectedDate ? formatDateBR(selectedDate) : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Horário</span>
-                <span className="text-right font-medium">
-                  {selectedSlot
-                    ? `${formatSlotTime(selectedSlot.start)} – ${formatSlotTime(selectedSlot.end)}`
-                    : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Duração</span>
-                <span className="text-right font-medium">
-                  {selectedProduct ? formatDuration(selectedProduct.duration) : '—'}
-                </span>
-              </div>
-              <Separator />
-              <div className="flex justify-between text-base">
-                <span className="font-semibold">Total</span>
-                <span className="font-semibold text-[var(--admin-accent)]">
-                  {selectedProduct ? formatCurrency(selectedProduct.price) : '—'}
-                </span>
-              </div>
-            </div>
-          </section>
+              )}
+            </section>
+          </StaggerIn>
         </div>
       ) : null}
 
-      <div className="flex items-center gap-3">
+      {step === 2 ? (
+        <div data-motion="enter">
+          <StaggerIn key="step-2" selector="[data-motion='lift']">
+            <section className="admin-surface p-5 sm:p-6">
+              <div className="mb-5 flex items-center gap-2">
+                <User className="size-5" />
+                <div>
+                  <h2 className="font-semibold">Escolha o profissional</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Disponíveis para {selectedProduct?.name}.
+                  </p>
+                </div>
+              </div>
+              {employees.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
+                  <User className="mb-3 size-10 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum profissional disponível para este serviço.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {employees.map((employee) => {
+                    const selected = selectedEmployee?.id === employee.id;
+                    return (
+                      <button
+                        key={employee.id}
+                        type="button"
+                        onClick={() => setSelectedEmployee(employee)}
+                        data-motion="lift"
+                        className={cn(
+                          'flex items-center gap-3 rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
+                          selected && 'ring-2 ring-[var(--admin-accent)]',
+                        )}
+                      >
+                        <Avatar className="size-12">
+                          <AvatarFallback className="bg-[var(--admin-chip)] text-sm">
+                            {getInitials(employee.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{employee.name}</p>
+                          {employee.phone ? (
+                            <p className="text-sm text-muted-foreground">{employee.phone}</p>
+                          ) : null}
+                        </div>
+                        {selected ? (
+                          <div className="flex size-7 items-center justify-center rounded-full bg-[var(--admin-accent)] text-[var(--admin-accent-foreground)]">
+                            <Check className="size-3.5" />
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </StaggerIn>
+        </div>
+      ) : null}
+
+      {step === 3 ? (
+        <div data-motion="enter">
+          <StaggerIn key="step-3" className="grid gap-4 lg:grid-cols-3">
+            <section className="admin-surface p-5 sm:p-6 lg:col-span-2">
+              <div className="mb-5 flex items-center gap-2">
+                <CalendarDays className="size-5" />
+                <div>
+                  <h2 className="font-semibold">Data e horário</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedEmployee?.name} · {selectedProduct?.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mb-5">
+                <BookingDatePicker value={selectedDate} onChange={setSelectedDate} />
+              </div>
+
+              {slotsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : dayClosed ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
+                  <CalendarDays className="mb-2 size-8 text-muted-foreground/40" />
+                  <p className="text-sm font-medium">Fechado neste dia</p>
+                  <p className="text-xs text-muted-foreground">
+                    Escolha outra data para continuar.
+                  </p>
+                </div>
+              ) : availableSlots.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
+                  <Clock className="mb-2 size-8 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum horário disponível neste dia.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    {availableSlots.length} horário{availableSlots.length !== 1 ? 's' : ''}{' '}
+                    disponível
+                    {availableSlots.length !== 1 ? 'is' : ''}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+                    {availableSlots.map((slot) => (
+                      <button
+                        key={slot.start}
+                        type="button"
+                        onClick={() => setSelectedSlot(slot)}
+                        className={cn(
+                          'rounded-2xl px-2 py-3 text-sm font-semibold transition-colors',
+                          selectedSlot?.start === slot.start
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
+                        )}
+                      >
+                        {formatSlotTime(slot.start)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className="mt-5 space-y-2">
+                <Label htmlFor="notes" className="text-sm text-muted-foreground">
+                  Observações <span className="text-muted-foreground/60">(opcional)</span>
+                </Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Alguma informação adicional..."
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={2}
+                  className="resize-none rounded-2xl text-sm"
+                />
+              </div>
+            </section>
+
+            <section className="admin-surface p-5 sm:p-6">
+              <h2 className="font-semibold">Resumo</h2>
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Serviço</span>
+                  <span className="text-right font-medium">{selectedProduct?.name}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Profissional</span>
+                  <span className="text-right font-medium">{selectedEmployee?.name}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Data</span>
+                  <span className="text-right font-medium">
+                    {selectedDate ? formatDateBR(selectedDate) : '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Horário</span>
+                  <span className="text-right font-medium">
+                    {selectedSlot
+                      ? `${formatSlotTime(selectedSlot.start)} – ${formatSlotTime(selectedSlot.end)}`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Duração</span>
+                  <span className="text-right font-medium">
+                    {selectedProduct ? formatDuration(selectedProduct.duration) : '—'}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex justify-between text-base">
+                  <span className="font-semibold">Total</span>
+                  <span className="font-semibold text-[var(--admin-accent)]">
+                    {selectedProduct ? formatCurrency(selectedProduct.price) : '—'}
+                  </span>
+                </div>
+              </div>
+            </section>
+          </StaggerIn>
+        </div>
+      ) : null}
+
+      <div data-motion="enter" className="flex items-center gap-3">
         {step > 1 ? (
           <Button variant="outline" onClick={goBack} className="flex-1 rounded-full">
             <ArrowLeft className="size-4" />
@@ -574,6 +506,6 @@ export default function BookPage() {
           </Button>
         )}
       </div>
-    </div>
+    </StaggerIn>
   );
 }

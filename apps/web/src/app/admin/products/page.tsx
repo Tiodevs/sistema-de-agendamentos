@@ -25,8 +25,9 @@ import {
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { ProductDialog } from '@/components/admin/product-dialog';
 import { DeleteProductDialog } from '@/components/admin/delete-product-dialog';
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, Loader2, Package } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -113,34 +114,30 @@ export default function ProductsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return (
-    <div className="space-y-5">
-      <AdminPageHeader
-        title="Produtos"
-        description="Serviços oferecidos pela agenda."
-        action={
-          <Button
-            className="rounded-full"
-            onClick={() => {
-              setEditingProduct(null);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="size-4" />
-            Novo Produto
-          </Button>
-        }
-      />
+    <StaggerIn selector="[data-motion='enter']" className="space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Produtos"
+          description="Serviços oferecidos pela agenda."
+          action={
+            <Button
+              className="rounded-full"
+              onClick={() => {
+                setEditingProduct(null);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="size-4" />
+              Novo Produto
+            </Button>
+          }
+        />
+      </div>
 
-      <section className="admin-surface p-4 sm:p-5">
+      <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 overflow-x-auto text-sm">
             {(
@@ -187,13 +184,14 @@ export default function ProductsPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <StaggerIn className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filteredProducts.map((product) => {
               const accent = accentForProduct(product.name);
               const Icon = iconForProduct(product.name);
               return (
                 <article
                   key={product.id}
+                  data-motion="lift"
                   className={cn(
                     'relative rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4',
                     !product.active && 'opacity-60',
@@ -252,7 +250,7 @@ export default function ProductsPage() {
                 </article>
               );
             })}
-          </div>
+          </StaggerIn>
         )}
       </section>
 
@@ -268,6 +266,6 @@ export default function ProductsPage() {
         productName={deletingProduct?.name || ''}
         onConfirm={handleDelete}
       />
-    </div>
+    </StaggerIn>
   );
 }

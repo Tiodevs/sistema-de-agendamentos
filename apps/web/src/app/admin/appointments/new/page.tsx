@@ -21,9 +21,9 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { BookingDatePicker } from '@/components/booking/date-picker';
 import {
   ArrowLeft,
   ArrowRight,
@@ -34,10 +34,9 @@ import {
   Search,
   User,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 type Step = 1 | 2 | 3;
 
@@ -59,25 +58,6 @@ function formatSlotTime(isoString: string): string {
 function formatDateBR(dateStr: string): string {
   const [year, month, day] = dateStr.split('-');
   return `${day}/${month}/${year}`;
-}
-
-function getDayName(dateStr: string): string {
-  const date = new Date(dateStr + 'T12:00:00');
-  return date.toLocaleDateString('pt-BR', { weekday: 'long' });
-}
-
-function getNextDays(count: number, startOffset = 0): string[] {
-  const days: string[] = [];
-  const today = new Date();
-  for (let i = startOffset; i < startOffset + count; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    days.push(`${yyyy}-${mm}-${dd}`);
-  }
-  return days;
 }
 
 export default function NewAppointmentPage() {
@@ -102,10 +82,6 @@ export default function NewAppointmentPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [notes, setNotes] = useState('');
-
-  // Calendar offset
-  const [dayOffset, setDayOffset] = useState(0);
-  const visibleDays = getNextDays(7, dayOffset);
 
   // Load initial data
   useEffect(() => {
@@ -234,20 +210,13 @@ export default function NewAppointmentPage() {
   const canGoNext = (step === 1 && selectedProduct) || (step === 2 && selectedEmployee) || false;
 
   const canSubmit = selectedProduct && selectedEmployee && selectedSlot && selectedClient;
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   const availableSlots = slots.filter((s) => s.available);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      <div className="flex items-center gap-4">
+    <StaggerIn selector="[data-motion='enter']" className="mx-auto max-w-4xl space-y-5">
+      <div data-motion="enter" className="flex items-center gap-4">
         <Button
           variant="ghost"
           size="icon"
@@ -264,12 +233,12 @@ export default function NewAppointmentPage() {
         </div>
       </div>
 
-      <div className="admin-surface flex items-center gap-2 p-2 sm:p-3">
+      <div data-motion="enter" className="admin-surface flex items-center px-3 py-2">
         {([1, 2, 3] as Step[]).map((s) => (
-          <div key={s} className="flex flex-1 items-center gap-2">
+          <div key={s} className={cn('flex items-center gap-2', s < 3 && 'min-w-0 flex-1')}>
             <div
               className={cn(
-                'flex size-8 items-center justify-center rounded-full text-sm font-medium transition-colors',
+                'flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors',
                 s <= step
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-[var(--admin-card-muted)] text-muted-foreground',
@@ -279,20 +248,20 @@ export default function NewAppointmentPage() {
             </div>
             <span
               className={cn(
-                'hidden text-sm font-medium sm:inline',
+                'hidden shrink-0 text-sm font-medium sm:inline',
                 s === step ? 'text-foreground' : 'text-muted-foreground',
               )}
             >
               {STEP_LABELS[s]}
             </span>
-            {s < 3 ? <Separator className="hidden flex-1 sm:block" /> : null}
+            {s < 3 ? <Separator className="flex-1" /> : null}
           </div>
         ))}
       </div>
 
       {/* Step 1: Select Product */}
       {step === 1 && (
-        <div className="space-y-4">
+        <div data-motion="enter" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -314,6 +283,7 @@ export default function NewAppointmentPage() {
                         ? 'border-primary bg-primary/5 ring-1 ring-primary'
                         : 'border-border hover:bg-muted/50',
                     )}
+                    data-motion="lift"
                   >
                     <div className="flex w-full items-center justify-between">
                       <span className="font-medium">{product.name}</span>
@@ -340,7 +310,7 @@ export default function NewAppointmentPage() {
 
       {/* Step 2: Select Employee */}
       {step === 2 && (
-        <div className="space-y-4">
+        <div data-motion="enter" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -372,6 +342,7 @@ export default function NewAppointmentPage() {
                           ? 'border-primary bg-primary/5 ring-1 ring-primary'
                           : 'border-border hover:bg-muted/50',
                       )}
+                      data-motion="lift"
                     >
                       <Avatar className="size-10">
                         <AvatarFallback className="text-xs">
@@ -393,9 +364,9 @@ export default function NewAppointmentPage() {
 
       {/* Step 3: Select Date & Time + Client */}
       {step === 3 && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div data-motion="enter" className="grid min-w-0 gap-4 lg:grid-cols-3">
           {/* Date Picker */}
-          <Card className="lg:col-span-2">
+          <Card className="min-w-0 overflow-hidden lg:col-span-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CalendarDays className="size-5" />
@@ -407,55 +378,7 @@ export default function NewAppointmentPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Day selector */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => setDayOffset(Math.max(0, dayOffset - 7))}
-                  disabled={dayOffset === 0}
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <ScrollArea className="flex-1">
-                  <div className="flex gap-2">
-                    {visibleDays.map((day) => {
-                      const isSelected = selectedDate === day;
-                      const isToday = day === getNextDays(1, 0)[0];
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          onClick={() => setSelectedDate(day)}
-                          className={cn(
-                            'flex min-w-[80px] flex-col items-center gap-0.5 rounded-2xl border px-3 py-2 text-center transition-colors',
-                            isSelected
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-border hover:bg-muted/50',
-                          )}
-                        >
-                          <span className="text-xs capitalize text-muted-foreground">
-                            {getDayName(day).slice(0, 3)}
-                          </span>
-                          <span className="text-sm font-medium">
-                            {formatDateBR(day).slice(0, 5)}
-                          </span>
-                          {isToday && <span className="text-[10px] text-primary">Hoje</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => setDayOffset(dayOffset + 7)}
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
+              <BookingDatePicker value={selectedDate} onChange={setSelectedDate} />
 
               {/* Time slots */}
               {slotsLoading ? (
@@ -504,13 +427,13 @@ export default function NewAppointmentPage() {
           </Card>
 
           {/* Client + Notes */}
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader>
               <CardTitle className="text-base">Cliente e Observações</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="min-w-0 space-y-4">
               {/* Client search */}
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label>Cliente</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -518,43 +441,49 @@ export default function NewAppointmentPage() {
                     placeholder="Buscar cliente..."
                     value={clientSearch}
                     onChange={(e) => setClientSearch(e.target.value)}
-                    className="pl-9 h-9 text-sm"
+                    className="h-9 pl-9 text-sm"
                   />
                 </div>
-                <ScrollArea className="max-h-[180px]">
-                  <div className="space-y-1">
-                    {filteredClients.slice(0, 20).map((client) => (
-                      <button
-                        key={client.id}
-                        type="button"
-                        onClick={() => setSelectedClient(client)}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                          selectedClient?.id === client.id
-                            ? 'bg-primary/10 text-primary'
-                            : 'hover:bg-muted/50',
-                        )}
-                      >
-                        <Avatar className="size-6">
-                          <AvatarFallback className="text-[10px]">
-                            {getInitials(client.name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{client.name}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {client.email}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-                {selectedClient && (
-                  <Badge variant="secondary" className="text-xs">
+                <div className="max-h-48 overflow-x-hidden overflow-y-auto overscroll-contain rounded-2xl bg-[var(--admin-card-muted)] p-1">
+                  {filteredClients.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      Nenhum cliente encontrado.
+                    </p>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {filteredClients.slice(0, 20).map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => setSelectedClient(client)}
+                          className={cn(
+                            'flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors',
+                            selectedClient?.id === client.id
+                              ? 'bg-primary/10 text-primary'
+                              : 'hover:bg-background/60',
+                          )}
+                        >
+                          <Avatar className="size-6 shrink-0">
+                            <AvatarFallback className="text-[10px]">
+                              {getInitials(client.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1 overflow-hidden">
+                            <p className="truncate text-sm font-medium">{client.name}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {client.email}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {selectedClient ? (
+                  <Badge variant="secondary" className="max-w-full truncate text-xs">
                     Selecionado: {selectedClient.name}
                   </Badge>
-                )}
+                ) : null}
               </div>
 
               <Separator />
@@ -580,7 +509,7 @@ export default function NewAppointmentPage() {
                   <Separator />
                   <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
                     <p className="text-xs font-semibold uppercase text-muted-foreground">Resumo</p>
-                    <div className="space-y-1 text-sm">
+                    <div className="space-y-1 break-words text-sm">
                       <p>
                         <span className="text-muted-foreground">Produto:</span>{' '}
                         {selectedProduct?.name}
@@ -611,7 +540,7 @@ export default function NewAppointmentPage() {
       )}
 
       {/* Navigation */}
-      <div className="flex items-center justify-between">
+      <div data-motion="enter" className="flex flex-wrap items-center justify-between gap-3">
         <Button variant="outline" className="rounded-full" onClick={goBack} disabled={step === 1}>
           <ArrowLeft className="size-4" />
           Voltar
@@ -637,6 +566,6 @@ export default function NewAppointmentPage() {
           </Button>
         )}
       </div>
-    </div>
+    </StaggerIn>
   );
 }

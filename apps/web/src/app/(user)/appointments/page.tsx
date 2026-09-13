@@ -20,11 +20,26 @@ import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { CalendarDays, CalendarPlus, Loader2, Search, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  });
+}
+
+function formatDayMonth(isoString: string): string {
+  const date = new Date(isoString);
+  const sameYear =
+    date.toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'America/Sao_Paulo' }) ===
+    new Date().toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'America/Sao_Paulo' });
+
+  return date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: sameYear ? undefined : '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
 }
@@ -106,28 +121,24 @@ export default function MyAppointmentsPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return (
-    <div className="space-y-5">
-      <AdminPageHeader
-        title="Meus agendamentos"
-        description={`${upcoming.length} ${upcoming.length === 1 ? 'horário próximo' : 'horários próximos'}.`}
-        action={
-          <Button onClick={() => router.push('/book')} className="rounded-full">
-            <CalendarPlus className="size-4" />
-            Agendar
-          </Button>
-        }
-      />
+    <StaggerIn selector="[data-motion='enter']" className="space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Meus agendamentos"
+          description={`${upcoming.length} ${upcoming.length === 1 ? 'horário próximo' : 'horários próximos'}.`}
+          action={
+            <Button onClick={() => router.push('/book')} className="rounded-full">
+              <CalendarPlus className="size-4" />
+              Agendar
+            </Button>
+          }
+        />
+      </div>
 
-      <section className="admin-surface p-4 sm:p-5">
+      <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -168,7 +179,10 @@ export default function MyAppointmentsPage() {
       </section>
 
       {displayedAppointments.length === 0 ? (
-        <section className="admin-surface flex flex-col items-center justify-center px-6 py-16">
+        <section
+          data-motion="enter"
+          className="admin-surface flex flex-col items-center justify-center px-6 py-16"
+        >
           <CalendarDays className="mb-4 size-12 text-muted-foreground/40" />
           <h2 className="text-lg font-semibold">
             {activeTab === 'upcoming'
@@ -190,49 +204,62 @@ export default function MyAppointmentsPage() {
           ) : null}
         </section>
       ) : (
-        <section className="admin-surface overflow-hidden">
+        <section data-motion="enter" className="admin-surface overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4">
             <p className="text-sm font-medium">
               {displayedAppointments.length}{' '}
               {displayedAppointments.length === 1 ? 'agendamento' : 'agendamentos'}
             </p>
           </div>
-          <div className="divide-y divide-border">
+          <StaggerIn replayKey={activeTab} selector="[data-row]" className="divide-y divide-border">
             {displayedAppointments.map((appointment) => (
-              <div key={appointment.id} className="flex items-center gap-3 px-5 py-4">
-                <div className="hidden size-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-[var(--admin-card-muted)] sm:flex">
-                  <span className="text-[11px] text-muted-foreground">
-                    {formatDate(appointment.date).split(' ')[0]}
-                  </span>
-                  <span className="text-sm font-semibold">{formatTime(appointment.date)}</span>
-                </div>
-                <Avatar className="size-10 shrink-0">
-                  <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
-                    {getInitials(appointment.employee.name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate font-medium">{appointment.product.name}</p>
-                    <StatusBadge status={appointment.status} />
-                  </div>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {appointment.employee.name}
-                    <span className="sm:hidden">
-                      {' '}
-                      · {formatTime(appointment.date)}–{formatTime(appointment.endDate)}
+              <div
+                key={appointment.id}
+                data-row
+                data-motion="lift"
+                className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
+              >
+                <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+                  <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
+                    <span className="text-[11px] leading-tight text-muted-foreground">
+                      {formatDayMonth(appointment.date)}
                     </span>
-                    {appointment.notes ? ` · ${appointment.notes}` : ''}
-                  </p>
+                    <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
+                      {formatTime(appointment.date)}
+                    </span>
+                  </div>
+                  <Avatar className="hidden size-10 shrink-0 sm:flex">
+                    <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
+                      {getInitials(appointment.employee.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{appointment.product.name}</p>
+                      <StatusBadge status={appointment.status} />
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {appointment.employee.name}
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      <span className="tabular-nums">
+                        {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
+                      </span>
+                      <span className="mx-1.5">·</span>
+                      <span className="font-medium text-foreground">
+                        {formatCurrency(appointment.price)}
+                      </span>
+                    </p>
+                    {appointment.notes ? (
+                      <p className="mt-1 text-xs text-muted-foreground">{appointment.notes}</p>
+                    ) : null}
+                  </div>
                 </div>
-                <p className="hidden shrink-0 font-semibold sm:block">
-                  {formatCurrency(appointment.price)}
-                </p>
                 {canCancel(appointment) ? (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    className="w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto sm:shrink-0"
                     onClick={() => setCancelId(appointment.id)}
                   >
                     Cancelar
@@ -240,7 +267,7 @@ export default function MyAppointmentsPage() {
                 ) : null}
               </div>
             ))}
-          </div>
+          </StaggerIn>
         </section>
       )}
 
@@ -292,6 +319,6 @@ export default function MyAppointmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </StaggerIn>
   );
 }

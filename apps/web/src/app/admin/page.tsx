@@ -9,8 +9,9 @@ import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
 import { WeeklyChart } from '@/components/admin/weekly-chart';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { CalendarDays, CalendarPlus, Loader2, AlertCircle, Search } from 'lucide-react';
+import { CalendarDays, CalendarPlus, AlertCircle, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 function monthRangeLabel() {
   const now = new Date();
@@ -63,14 +64,7 @@ export default function AdminDashboard() {
     if (todayFilter === 'ALL') return data.todayAppointments;
     return data.todayAppointments.filter((item) => item.status === todayFilter);
   }, [data, todayFilter]);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   if (!data) {
     return (
@@ -102,9 +96,12 @@ export default function AdminDashboard() {
   const todayStatuses = Array.from(new Set(todayAppointments.map((item) => item.status)));
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+    <StaggerIn
+      selector="[data-motion='enter']"
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
+    >
       <div className="space-y-4">
-        <section className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Tempo na agenda</h2>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -150,7 +147,7 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        <section className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Agenda de hoje</h2>
             <div className="flex items-center gap-3">
@@ -206,6 +203,7 @@ export default function AdminDashboard() {
                     key={product.productId}
                     type="button"
                     onClick={() => router.push('/admin/appointments/new')}
+                    data-motion="lift"
                     className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]"
                   >
                     <div
@@ -237,6 +235,7 @@ export default function AdminDashboard() {
                     key={appointment.id}
                     type="button"
                     onClick={() => router.push('/admin/appointments')}
+                    data-motion="lift"
                     className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]"
                   >
                     <div className="mb-5 flex items-start justify-between gap-3">
@@ -269,7 +268,10 @@ export default function AdminDashboard() {
       </div>
 
       <aside className="space-y-4">
-        <section className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white">
+        <section
+          data-motion="enter"
+          className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
+        >
           <div className="mb-8 flex items-start justify-between gap-3">
             <div>
               <p className="text-3xl font-semibold tracking-tight">
@@ -321,7 +323,7 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        <section className="admin-surface p-5">
+        <section data-motion="enter" className="admin-surface p-5">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <p className="text-lg font-semibold tracking-tight">
@@ -344,7 +346,7 @@ export default function AdminDashboard() {
                   style={{ width: `${(activeCount / totalStatusCount) * 100}%` }}
                 />
                 <div
-                  className="h-full bg-[#00DDB2]/40"
+                  className="h-full bg-[#34C3DD]/40"
                   style={{ width: `${(completedCount / totalStatusCount) * 100}%` }}
                 />
                 <div
@@ -361,7 +363,7 @@ export default function AdminDashboard() {
               Em aberto {activeCount}
             </span>
             <span className="inline-flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-[#00DDB2]/40" />
+              <span className="size-2.5 rounded-full bg-[#34C3DD]/40" />
               Concluídos {completedCount}
             </span>
             <span className="inline-flex items-center gap-2">
@@ -371,7 +373,10 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        <section className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5">
+        <section
+          data-motion="enter"
+          className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5"
+        >
           <p className="text-sm text-white/70">
             {nextAppointment
               ? `${formatDuration(nextAppointment.product.duration)} · ${formatSlotTime(nextAppointment.date)}`
@@ -399,6 +404,6 @@ export default function AdminDashboard() {
           </Button>
         </section>
       </aside>
-    </div>
+    </StaggerIn>
   );
 }

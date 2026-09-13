@@ -9,8 +9,9 @@ import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
 import { STATUS_CONFIG } from '@/lib/appointment-status';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/admin/status-badge';
-import { CalendarDays, CalendarPlus, Loader2 } from 'lucide-react';
+import { CalendarDays, CalendarPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 function formatSlotTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
@@ -75,19 +76,15 @@ export default function HomePage() {
     if (hour < 18) return 'Boa tarde';
     return 'Boa noite';
   })();
-
-  if (loadingAppointments) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loadingAppointments) return null;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+    <StaggerIn
+      selector="[data-motion='enter']"
+      className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
+    >
       <div className="space-y-4">
-        <section className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
           <p className="text-sm text-muted-foreground">{greeting}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
             {user?.name}
@@ -110,7 +107,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">Próximos horários</h2>
             {upcoming.length > 0 ? (
@@ -142,6 +139,7 @@ export default function HomePage() {
                     key={appointment.id}
                     type="button"
                     onClick={() => router.push('/appointments')}
+                    data-motion="lift"
                     className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]"
                   >
                     <div className="mb-5 flex items-start justify-between gap-3">
@@ -174,7 +172,10 @@ export default function HomePage() {
       </div>
 
       <aside className="space-y-4">
-        <section className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white">
+        <section
+          data-motion="enter"
+          className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
+        >
           <div className="mb-8 flex items-start justify-between gap-3">
             <div>
               <p className="text-3xl font-semibold tracking-tight">
@@ -213,7 +214,10 @@ export default function HomePage() {
           )}
         </section>
 
-        <section className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5">
+        <section
+          data-motion="enter"
+          className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5"
+        >
           <p className="text-sm text-white/70">
             {nextAppointment
               ? `${formatDuration(nextAppointment.product.duration)} · ${formatSlotTime(nextAppointment.date)}`
@@ -241,6 +245,6 @@ export default function HomePage() {
           </Button>
         </section>
       </aside>
-    </div>
+    </StaggerIn>
   );
 }

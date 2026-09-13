@@ -8,7 +8,7 @@ import {
   type Appointment,
   type AppointmentStatus,
 } from '@/lib/api';
-import { formatCurrency, formatDate, getInitials } from '@/lib/format';
+import { formatCurrency, formatDate, formatShortName, getInitials } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -42,11 +42,26 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { StaggerIn } from '@/components/motion/stagger-in';
 
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  });
+}
+
+function formatDayMonth(isoString: string): string {
+  const date = new Date(isoString);
+  const sameYear =
+    date.toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'America/Sao_Paulo' }) ===
+    new Date().toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'America/Sao_Paulo' });
+
+  return date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: sameYear ? undefined : '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
 }
@@ -117,28 +132,24 @@ export default function AppointmentsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return (
-    <div className="space-y-5">
-      <AdminPageHeader
-        title="Agendamentos"
-        description="Acompanhe e atualize os horários da agenda."
-        action={
-          <Button onClick={() => router.push('/admin/appointments/new')} className="rounded-full">
-            <Plus className="size-4" />
-            Novo Agendamento
-          </Button>
-        }
-      />
+    <StaggerIn selector="[data-motion='enter']" className="space-y-5">
+      <div data-motion="enter">
+        <AdminPageHeader
+          title="Agendamentos"
+          description="Acompanhe e atualize os horários da agenda."
+          action={
+            <Button onClick={() => router.push('/admin/appointments/new')} className="rounded-full">
+              <Plus className="size-4" />
+              Novo Agendamento
+            </Button>
+          }
+        />
+      </div>
 
-      <section className="admin-surface p-4 sm:p-5">
+      <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -182,7 +193,10 @@ export default function AppointmentsPage() {
       </section>
 
       {filteredAppointments.length === 0 ? (
-        <section className="admin-surface flex flex-col items-center justify-center px-6 py-16">
+        <section
+          data-motion="enter"
+          className="admin-surface flex flex-col items-center justify-center px-6 py-16"
+        >
           <CalendarDays className="mb-4 size-12 text-muted-foreground/40" />
           <h2 className="text-lg font-semibold">Nenhum agendamento encontrado</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -201,46 +215,73 @@ export default function AppointmentsPage() {
           ) : null}
         </section>
       ) : (
-        <section className="admin-surface overflow-hidden">
+        <section data-motion="enter" className="admin-surface overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4">
             <p className="text-sm font-medium">
               {filteredAppointments.length}{' '}
               {filteredAppointments.length === 1 ? 'agendamento' : 'agendamentos'}
             </p>
           </div>
-          <div className="divide-y divide-border">
+          <StaggerIn
+            replayKey={statusFilter}
+            selector="[data-row]"
+            className="divide-y divide-border"
+          >
             {filteredAppointments.map((appointment) => (
-              <div key={appointment.id} className="flex items-center gap-3 px-5 py-4">
-                <div className="hidden size-14 shrink-0 flex-col items-center justify-center rounded-2xl bg-[var(--admin-card-muted)] sm:flex">
-                  <span className="text-[11px] text-muted-foreground">
-                    {formatDate(appointment.date).split(' ')[0]}
+              <div
+                key={appointment.id}
+                data-row
+                data-motion="lift"
+                className="flex items-start gap-3 px-4 py-4 sm:items-center sm:px-5"
+              >
+                <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
+                  <span className="text-[11px] leading-tight text-muted-foreground">
+                    {formatDayMonth(appointment.date)}
                   </span>
-                  <span className="text-sm font-semibold">{formatTime(appointment.date)}</span>
+                  <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
+                    {formatTime(appointment.date)}
+                  </span>
                 </div>
-                <Avatar className="size-10 shrink-0">
+                <Avatar className="hidden size-10 shrink-0 md:flex">
                   <AvatarFallback className="bg-[var(--admin-card-muted)] text-xs">
                     {getInitials(appointment.client.name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate font-medium">{appointment.client.name}</p>
+                  <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                    <p className="min-w-0 truncate font-medium" title={appointment.client.name}>
+                      {formatShortName(appointment.client.name)}
+                    </p>
                     <StatusBadge status={appointment.status} />
                   </div>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {appointment.product.name} · {appointment.employee.name}
-                    <span className="sm:hidden">
-                      {' '}
-                      · {formatTime(appointment.date)}–{formatTime(appointment.endDate)}
+                  <p
+                    className="mt-1 truncate text-sm text-muted-foreground"
+                    title={appointment.product.name}
+                  >
+                    {appointment.product.name}
+                  </p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
+                    <span className="truncate" title={appointment.employee.name}>
+                      {formatShortName(appointment.employee.name)}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span className="whitespace-nowrap tabular-nums">
+                      {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
+                    </span>
+                    <span className="sm:hidden" aria-hidden>
+                      ·
+                    </span>
+                    <span className="whitespace-nowrap font-medium text-foreground sm:hidden">
+                      {formatCurrency(appointment.price)}
                     </span>
                   </p>
                 </div>
-                <p className="hidden shrink-0 font-semibold sm:block">
+                <p className="hidden shrink-0 font-semibold tabular-nums sm:block">
                   {formatCurrency(appointment.price)}
                 </p>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="size-9 rounded-2xl">
+                    <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-2xl">
                       <MoreHorizontal className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -270,7 +311,7 @@ export default function AppointmentsPage() {
                 </DropdownMenu>
               </div>
             ))}
-          </div>
+          </StaggerIn>
         </section>
       )}
 
@@ -316,6 +357,6 @@ export default function AppointmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </StaggerIn>
   );
 }

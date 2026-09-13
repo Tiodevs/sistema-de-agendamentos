@@ -33,6 +33,20 @@ export function getInitials(name: string) {
     .slice(0, 2);
 }
 
+const NAME_PARTICLES = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+/** Ex.: "Felipe Pereira Dos Santos" → "Felipe P." */
+export function formatShortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return fullName;
+  if (parts.length === 1) return parts[0];
+
+  const second = parts.slice(1).find((part) => !NAME_PARTICLES.has(part.toLowerCase()));
+  if (!second) return parts[0];
+
+  return `${parts[0]} ${second[0].toUpperCase()}.`;
+}
+
 export function formatDate(dateString: string): string {
   return new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'short',

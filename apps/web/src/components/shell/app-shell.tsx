@@ -2,12 +2,11 @@
 
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   LogOut,
   Menu,
-  Search,
   LayoutGrid,
   CalendarPlus,
   Bell,
@@ -17,9 +16,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { Logo } from '@/components/logo';
+import { BRAND_NAME, Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Sheet, SheetClose, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -42,6 +40,11 @@ export type AppShellNavItem = {
   href: string;
   icon: LucideIcon;
   exact?: boolean;
+};
+
+export type AppShellUser = {
+  role: string;
+  employeeId?: string | null;
 };
 
 export type AppShellCta = {
@@ -152,8 +155,6 @@ export function AppShell({
   getBreadcrumb,
   isAuthorized,
   unauthorizedHref,
-  searchHref,
-  searchPlaceholder = 'Buscar',
   notificationsHref,
   cta,
 }: {
@@ -162,18 +163,15 @@ export function AppShell({
   homeHref: string;
   roleLabel: string;
   getBreadcrumb: (pathname: string) => { parent: string; current: string };
-  isAuthorized: (user: { role: string }) => boolean;
-  unauthorizedHref: string;
-  searchHref: (query: string) => string;
-  searchPlaceholder?: string;
+  isAuthorized: (user: AppShellUser) => boolean;
+  unauthorizedHref: string | ((user: AppShellUser) => string);
   notificationsHref: string;
-  cta: AppShellCta;
+  cta?: AppShellCta;
 }) {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [query, setQuery] = useState('');
   const breadcrumb = useMemo(() => getBreadcrumb(pathname), [getBreadcrumb, pathname]);
   const { theme, toggleTheme } = useAdminTheme();
 
@@ -185,12 +183,15 @@ export function AppShell({
   }, []);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/login');
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      router.replace('/login');
       return;
     }
-    if (!isLoading && user && !isAuthorized(user)) {
-      router.push(unauthorizedHref);
+    if (user && !isAuthorized(user)) {
+      const href =
+        typeof unauthorizedHref === 'function' ? unauthorizedHref(user) : unauthorizedHref;
+      router.replace(href);
     }
   }, [isLoading, isAuthenticated, user, router, isAuthorized, unauthorizedHref]);
 
@@ -203,11 +204,6 @@ export function AppShell({
     logout();
   }
 
-  function handleSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    router.push(searchHref(query.trim()));
-  }
-
   async function handleShare() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -218,11 +214,7 @@ export function AppShell({
   }
 
   if (isLoading || !isAuthenticated || !user || !isAuthorized(user)) {
-    return (
-      <div className="admin-theme admin-frame flex min-h-screen items-center justify-center p-4">
-        <div className="size-8 animate-spin rounded-full border-4 border-muted border-t-[var(--admin-accent)]" />
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -234,7 +226,6 @@ export function AppShell({
             className="mb-8 flex size-11 items-center justify-center rounded-2xl bg-white/5"
           >
             <Logo size={26} />
-            <span className="sr-only">Sentier</span>
           </Link>
           <div className="min-h-0 flex-1">
             <NavLinks pathname={pathname} items={navItems} />
@@ -243,7 +234,7 @@ export function AppShell({
         </aside>
 
         <section className="admin-panel min-h-[calc(100dvh-1.5rem)] min-w-0 flex-1 rounded-[28px] sm:min-h-[calc(100dvh-2rem)] sm:rounded-[32px] lg:min-h-[calc(100dvh-2.5rem)]">
-          <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-4 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-4">
+          <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetTrigger asChild>
@@ -263,7 +254,7 @@ export function AppShell({
                     <div className="mb-6 flex items-center justify-between gap-3 px-5">
                       <div className="flex items-center gap-3">
                         <Logo size={28} />
-                        <span className="text-lg font-semibold">Sentier</span>
+                        <span className="text-lg font-semibold">{BRAND_NAME}</span>
                       </div>
                       <SheetClose asChild>
                         <Button
@@ -316,23 +307,7 @@ export function AppShell({
               </div>
             </div>
 
-            <form
-              onSubmit={handleSearch}
-              className="col-span-2 min-w-0 w-full lg:col-span-1 lg:col-start-2 lg:row-start-1"
-            >
-              <div className="relative">
-                <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={searchPlaceholder}
-                  className="w-full rounded-full bg-[var(--admin-card-muted)] pl-10"
-                  aria-label={searchPlaceholder}
-                />
-              </div>
-            </form>
-
-            <div className="col-start-2 row-start-1 flex items-center justify-end gap-1.5 lg:col-start-3 lg:row-start-1">
+            <div className="flex shrink-0 items-center justify-end gap-1.5">
               <AdminThemeToggle />
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -362,10 +337,12 @@ export function AppShell({
                 </TooltipTrigger>
                 <TooltipContent>Copiar link</TooltipContent>
               </Tooltip>
-              <Button onClick={() => router.push(cta.href)} className="rounded-full px-4">
-                <CalendarPlus className="size-4" />
-                <span className="hidden sm:inline">{cta.label}</span>
-              </Button>
+              {cta ? (
+                <Button onClick={() => router.push(cta.href)} className="rounded-full px-4">
+                  <CalendarPlus className="size-4" />
+                  <span className="hidden sm:inline">{cta.label}</span>
+                </Button>
+              ) : null}
             </div>
           </header>
 
