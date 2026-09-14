@@ -9,7 +9,10 @@
   --admin-card-muted: oklch(0.255 0.006 285.885);
   --admin-hover: color-mix(in oklch, white 6%, transparent);
   --admin-chip: color-mix(in oklch, black 22%, transparent);
-  --admin-track: color-mix(in oklch, white 6%, transparent);
+  --admin-track: color-mix(in oklch, white 12%, transparent);
+  --card: var(--admin-card);
+  --muted: var(--admin-card-muted);
+  --secondary: var(--admin-card-muted);
   font-family: var(--font-plus-jakarta), ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.01em;
 }
@@ -17,16 +20,17 @@
 html:not(.dark) .admin-theme {
   --admin-rail: #07070a;
   --admin-rail-ring: transparent;
-  --admin-panel: oklch(1 0 0);
+  --admin-panel: oklch(0.965 0.006 285.885);
   --admin-card: oklch(1 0 0);
-  --admin-card-muted: oklch(0.965 0.004 285.885);
-  --admin-hover: color-mix(in oklch, black 4%, transparent);
+  --admin-card-muted: oklch(0.942 0.006 285.885);
+  --admin-hover: color-mix(in oklch, black 5%, transparent);
   --admin-chip: color-mix(in oklch, black 8%, transparent);
-  --admin-track: oklch(0.94 0.006 285.885);
+  --admin-track: oklch(0.9 0.006 285.885);
 }
 
 .admin-frame {
   min-height: 100dvh;
+  overflow-x: clip;
   background:
     radial-gradient(1200px 480px at 80% -10%, oklch(0.3 0.05 210 / 0.22), transparent 55%),
     linear-gradient(180deg, oklch(0.12 0.008 250), oklch(0.1 0.006 285.885));
@@ -39,10 +43,12 @@ html:not(.dark) .admin-frame {
       color-mix(in oklch, var(--admin-accent) 16%, white),
       transparent 58%
     ),
-    linear-gradient(180deg, oklch(0.97 0.012 200), oklch(0.96 0.008 285.885));
+    linear-gradient(180deg, oklch(0.93 0.014 200), oklch(0.91 0.01 285.885));
 }
 
 .admin-panel {
+  min-width: 0;
+  overflow-x: clip;
   background: var(--admin-panel);
   box-shadow: 0 24px 60px oklch(0 0 0 / 0.28);
 }
@@ -74,12 +80,13 @@ html:not(.dark) .admin-mobile-nav {
 }
 
 .admin-surface {
+  min-width: 0;
   background: var(--admin-card);
   border-radius: 1.5rem;
 }
 
 html:not(.dark) .admin-surface {
-  box-shadow: 0 1px 2px oklch(0.45 0.02 285.885 / 0.04);
+  box-shadow: none;
 }
 
 .admin-theme [data-slot='card'] {
@@ -91,19 +98,58 @@ html:not(.dark) .admin-surface {
   box-shadow: none;
 }
 
+.admin-theme [data-slot='card-header'],
+.admin-theme [data-slot='card-content'],
+.admin-theme [data-slot='card-footer'] {
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+  .admin-theme [data-slot='card-header'],
+  .admin-theme [data-slot='card-content'],
+  .admin-theme [data-slot='card-footer'] {
+    padding-inline: 1.5rem;
+  }
+}
+
 .admin-theme [data-slot='input'] {
   height: 2.5rem;
   border: 0;
   background: var(--admin-card-muted);
 }
 
-.admin-theme input[type='time'] {
+.admin-theme input[type='time'],
+.admin-theme input[type='date'] {
+  width: 100%;
   min-width: 0;
   max-width: 100%;
 }
 
-.admin-theme input[type='time']::-webkit-datetime-edit {
+.admin-theme input[type='time']::-webkit-calendar-picker-indicator,
+.admin-theme input[type='date']::-webkit-calendar-picker-indicator {
+  margin-inline: 0 0.15rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  padding: 0;
+}
+
+.admin-theme input[type='time']::-webkit-datetime-edit,
+.admin-theme input[type='time']::-webkit-datetime-edit-fields-wrapper,
+.admin-theme input[type='date']::-webkit-datetime-edit,
+.admin-theme input[type='date']::-webkit-datetime-edit-fields-wrapper {
   min-width: 0;
+  padding: 0;
+}
+
+.admin-scroll-x {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.admin-scroll-x::-webkit-scrollbar {
+  display: none;
 }
 
 .admin-bar-striped {

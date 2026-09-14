@@ -26,7 +26,7 @@ export function RankingList({
   const max = Math.max(1, ...items.map((item) => item.count));
 
   return (
-    <section data-motion="enter" className="admin-surface p-5">
+    <section data-motion="enter" className="admin-surface p-4 sm:p-5">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
       {items.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">{emptyLabel}</p>

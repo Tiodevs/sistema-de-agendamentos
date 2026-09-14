@@ -1,13 +1,34 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
-import { RegisterInput, LoginInput, UpdateProfileInput } from '../schemas/auth.schema';
-import { notifyWelcome } from './email.service';
+import {
+  RegisterInput,
+  LoginInput,
+  UpdateProfileInput,
+  ResetPasswordInput,
+  ChangePasswordInput,
+} from '../schemas/auth.schema';
+import { notifyPasswordChanged, notifyPasswordReset, notifyWelcome } from './email.service';
 import { storageService } from './storage.service';
 import { userAvatarUrl } from '../lib/avatar';
+import { httpError } from '../lib/http-error';
+import { getJwtExpiresIn, getJwtSecret } from '../lib/jwt';
+import {
+  createPasswordResetToken,
+  hashPasswordResetToken,
+  PASSWORD_RESET_TTL_MS,
+} from '../lib/password-reset-token';
+import { consumeRateLimit, waitAtLeast } from '../lib/rate-limit';
+import { appUrl } from '../emails/brand';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = getJwtExpiresIn();
+const BCRYPT_ROUNDS = 12;
+const FORGOT_PASSWORD_EMAIL_LIMIT = 3;
+const FORGOT_PASSWORD_WINDOW_MS = 60 * 60 * 1000;
+const CHANGE_PASSWORD_LIMIT = 5;
+const CHANGE_PASSWORD_WINDOW_MS = 15 * 60 * 1000;
+const GENERIC_RESET_MESSAGE =
+  'Se este e-mail estiver cadastrado, você receberá as instruções em instantes.';
 
 interface UserPayload {
   id: string;
@@ -44,7 +65,7 @@ type ProfileRecord = {
 
 function generateToken(user: UserPayload): string {
   const expiresInSeconds = parseExpiresIn(JWT_EXPIRES_IN);
-  return jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, {
+  return jwt.sign({ id: user.id, email: user.email, role: user.role }, getJwtSecret(), {
     expiresIn: expiresInSeconds,
   });
 }
@@ -66,12 +87,6 @@ function parseExpiresIn(value: string): number {
     default:
       return 604800;
   }
-}
-
-function httpError(message: string, statusCode: number) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
 }
 
 function toPublicUser(user: ProfileRecord) {
@@ -119,7 +134,7 @@ export class AuthService {
       throw httpError('E-mail já está em uso', 409);
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
     const user = await prisma.user.create({
       data: {
@@ -339,5 +354,164 @@ export class AuthService {
       role: client.role,
       avatarUrl: userAvatarUrl(client.id, client.avatar, client.updatedAt),
     }));
+  }
+
+  async requestPasswordReset(email: string) {
+    const startedAt = Date.now();
+    const allowed = consumeRateLimit(
+      `forgot-email:${email}`,
+      FORGOT_PASSWORD_EMAIL_LIMIT,
+      FORGOT_PASSWORD_WINDOW_MS,
+    );
+
+    if (allowed) {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, name: true, email: true, active: true },
+      });
+
+      if (user?.active) {
+        const { token, tokenHash } = createPasswordResetToken();
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+        const now = new Date();
+
+        const created = await prisma.$transaction(async (tx) => {
+          await tx.passwordResetToken.updateMany({
+            where: { userId: user.id, usedAt: null },
+            data: { usedAt: now },
+          });
+          return tx.passwordResetToken.create({
+            data: { userId: user.id, tokenHash, expiresAt },
+            select: { id: true },
+          });
+        });
+
+        notifyPasswordReset({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          tokenId: created.id,
+          resetUrl: `${appUrl()}/reset-password?token=${encodeURIComponent(token)}`,
+        });
+      }
+    }
+
+    await waitAtLeast(startedAt, 250);
+    return GENERIC_RESET_MESSAGE;
+  }
+
+  async resetPassword(data: ResetPasswordInput) {
+    const tokenHash = hashPasswordResetToken(data.token);
+    const record = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+        usedAt: true,
+        user: { select: { id: true, name: true, email: true, active: true, password: true } },
+      },
+    });
+
+    if (!record || record.usedAt || record.expiresAt <= new Date() || !record.user.active) {
+      throw httpError('Link inválido ou expirado', 400);
+    }
+
+    const samePassword = await bcrypt.compare(data.password, record.user.password);
+    if (samePassword) {
+      throw httpError('A nova senha deve ser diferente da senha atual', 400);
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
+    const passwordChangedAt = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: { id: record.id, usedAt: null, expiresAt: { gt: new Date() } },
+        data: { usedAt: passwordChangedAt },
+      });
+
+      if (consumed.count !== 1) {
+        throw httpError('Link inválido ou expirado', 400);
+      }
+
+      await tx.user.update({
+        where: { id: record.userId },
+        data: { password: hashedPassword, passwordChangedAt },
+      });
+
+      await tx.passwordResetToken.updateMany({
+        where: { userId: record.userId, usedAt: null },
+        data: { usedAt: passwordChangedAt },
+      });
+    });
+
+    notifyPasswordChanged({
+      id: record.user.id,
+      name: record.user.name,
+      email: record.user.email,
+      changedAt: passwordChangedAt,
+    });
+  }
+
+  async changePassword(userId: string, data: ChangePasswordInput) {
+    if (
+      !consumeRateLimit(
+        `change-password:${userId}`,
+        CHANGE_PASSWORD_LIMIT,
+        CHANGE_PASSWORD_WINDOW_MS,
+      )
+    ) {
+      throw httpError('Muitas tentativas. Tente novamente em instantes.', 429);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { ...profileSelect, password: true, active: true },
+    });
+
+    if (!user?.active) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    const isCurrentValid = await bcrypt.compare(data.currentPassword, user.password);
+    if (!isCurrentValid) {
+      throw httpError('Senha atual incorreta', 400);
+    }
+
+    const isSamePassword = await bcrypt.compare(data.newPassword, user.password);
+    if (isSamePassword) {
+      throw httpError('A nova senha deve ser diferente da atual', 400);
+    }
+
+    const hashedPassword = await bcrypt.hash(data.newPassword, BCRYPT_ROUNDS);
+    const passwordChangedAt = new Date();
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextUser = await tx.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword, passwordChangedAt },
+        select: profileSelect,
+      });
+
+      await tx.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: passwordChangedAt },
+      });
+
+      return nextUser;
+    });
+
+    notifyPasswordChanged({
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      changedAt: passwordChangedAt,
+    });
+
+    return {
+      user: toPublicUser(updated),
+      token: generateToken(updated),
+    };
   }
 }

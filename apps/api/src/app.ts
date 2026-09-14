@@ -9,35 +9,52 @@ import { swaggerSpec } from './config/swagger';
 
 const app = express();
 
-// Middlewares de segurança e parsing
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.APP_URL || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const swaggerEnabled =
+  process.env.SWAGGER_ENABLED === 'true' || process.env.NODE_ENV !== 'production';
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   }),
 );
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    credentials: true,
+  }),
+);
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Documentação Swagger
-app.use(
-  '/api/docs',
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: 'API Agendamentos - Docs',
-  }),
-);
-app.get('/api/docs.json', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
-});
+if (swaggerEnabled) {
+  app.use(
+    '/api/docs',
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+      customCss: '.swagger-ui .topbar { display: none }',
+      customSiteTitle: 'API Agendamentos - Docs',
+    }),
+  );
+  app.get('/api/docs.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
+}
 
-// Rotas
 app.use('/api', router);
 
-// Handler de erros global
 app.use(errorHandler);
 
 export { app };

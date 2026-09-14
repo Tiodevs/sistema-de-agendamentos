@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { ProductService } from '../services/product.service';
 import { createProductSchema, updateProductSchema } from '../schemas/product.schema';
 import { z } from 'zod';
+import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { httpError } from '../lib/http-error';
 
 const productService = new ProductService();
 
@@ -16,6 +18,11 @@ export class ProductController {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
       const includeInactive = req.query.includeInactive === 'true';
+      const authReq = req as AuthenticatedRequest;
+      if (includeInactive && authReq.user.role !== 'ADMIN') {
+        throw httpError('Acesso restrito a administradores', 403);
+      }
+
       const products = await productService.findAll(includeInactive);
 
       res.status(200).json({
@@ -29,7 +36,11 @@ export class ProductController {
 
   async findById(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthenticatedRequest;
       const product = await productService.findById(req.params.id as string);
+      if (!product.active && authReq.user.role !== 'ADMIN') {
+        throw httpError('Produto não encontrado', 404);
+      }
 
       res.status(200).json({
         status: 'success',

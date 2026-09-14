@@ -96,38 +96,44 @@ export default function ProfessionalDashboardPage() {
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
     >
       <div className="space-y-4">
-        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-4 sm:p-6">
           <p className="text-sm text-muted-foreground">{greeting}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
             {data.employee?.name || 'Profissional'}
           </h1>
-          <div className="mt-8 grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          <div className="mt-8 grid grid-cols-3 gap-2 sm:gap-4">
+            <div className="min-w-0">
+              <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                 {overview.monthAppointments}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">No mês</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                No mês
+              </p>
             </div>
-            <div>
-              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            <div className="min-w-0">
+              <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                 {overview.weekAppointments}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">Esta semana</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                Esta semana
+              </p>
             </div>
-            <div>
-              <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            <div className="min-w-0">
+              <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                 {overview.totalClients}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">Clientes</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                Clientes
+              </p>
             </div>
           </div>
         </section>
 
-        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-4 sm:p-6">
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Agenda de hoje</h2>
             <div className="flex items-center gap-3">
-              <div className="flex max-w-full gap-1 overflow-x-auto text-sm">
+              <div className="admin-scroll-x flex max-w-full gap-1 text-sm">
                 <button
                   type="button"
                   onClick={() => setTodayFilter('ALL')}
@@ -299,7 +305,7 @@ export default function ProfessionalDashboardPage() {
           </div>
         </section>
 
-        <section data-motion="enter" className="admin-surface p-5">
+        <section data-motion="enter" className="admin-surface p-4 sm:p-5">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <p className="text-lg font-semibold tracking-tight">

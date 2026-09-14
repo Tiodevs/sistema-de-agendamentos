@@ -6,9 +6,13 @@ import {
   getEmployees,
   getAvailableSlots,
   bookAppointment,
+  getBusinessHours,
+  getSpecialDays,
   type Product,
   type Employee,
   type AvailabilitySlot,
+  type BusinessHour,
+  type SpecialDay,
 } from '@/lib/api';
 import { formatCurrency, formatDuration } from '@/lib/format';
 import { accentForProduct, iconForProduct } from '@/lib/admin-accents';
@@ -33,6 +37,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { isClosedDate, nextOpenDateKey, todayDateKey } from '@/lib/datetime';
 
 type Step = 1 | 2 | 3;
 
@@ -72,19 +77,27 @@ export default function BookPage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [notes, setNotes] = useState('');
+  const [hours, setHours] = useState<BusinessHour[]>([]);
+  const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
 
   useEffect(() => {
-    async function loadProducts() {
+    async function loadCatalog() {
       try {
-        const res = await getProducts(false);
-        if (res.data?.products) setProducts(res.data.products);
+        const [productsRes, hoursRes, specialRes] = await Promise.all([
+          getProducts(false),
+          getBusinessHours().catch(() => null),
+          getSpecialDays().catch(() => null),
+        ]);
+        if (productsRes.data?.products) setProducts(productsRes.data.products);
+        if (hoursRes?.data?.hours) setHours(hoursRes.data.hours);
+        if (specialRes?.data?.days) setSpecialDays(specialRes.data.days);
       } catch {
         toast.error('Erro ao carregar serviços');
       } finally {
         setLoading(false);
       }
     }
-    loadProducts();
+    loadCatalog();
   }, []);
 
   useEffect(() => {
@@ -131,14 +144,16 @@ export default function BookPage() {
   }, [selectedEmployee, selectedProduct, selectedDate, fetchSlots]);
 
   useEffect(() => {
-    if (step === 3 && !selectedDate) {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    if (step !== 3) return;
+    const fallback = nextOpenDateKey(hours, specialDays, todayDateKey());
+    if (!selectedDate) {
+      setSelectedDate(fallback);
+      return;
     }
-  }, [step, selectedDate]);
+    if (hours.length && isClosedDate(selectedDate, hours, specialDays)) {
+      setSelectedDate(fallback);
+    }
+  }, [step, selectedDate, hours, specialDays]);
 
   function goNext() {
     if (step < 3) setStep((s) => (s + 1) as Step);
@@ -227,7 +242,7 @@ export default function BookPage() {
       {step === 1 ? (
         <div data-motion="enter">
           <StaggerIn key="step-1" selector="[data-motion='lift']">
-            <section className="admin-surface p-5 sm:p-6">
+            <section className="admin-surface p-4 sm:p-6">
               <div className="mb-5 flex items-center gap-2">
                 <Package className="size-5" />
                 <div>
@@ -296,7 +311,7 @@ export default function BookPage() {
       {step === 2 ? (
         <div data-motion="enter">
           <StaggerIn key="step-2" selector="[data-motion='lift']">
-            <section className="admin-surface p-5 sm:p-6">
+            <section className="admin-surface p-4 sm:p-6">
               <div className="mb-5 flex items-center gap-2">
                 <User className="size-5" />
                 <div>
@@ -336,9 +351,6 @@ export default function BookPage() {
                         />
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold">{employee.name}</p>
-                          {employee.phone ? (
-                            <p className="text-sm text-muted-foreground">{employee.phone}</p>
-                          ) : null}
                         </div>
                         {selected ? (
                           <div className="flex size-7 items-center justify-center rounded-full bg-[var(--admin-accent)] text-[var(--admin-accent-foreground)]">
@@ -358,19 +370,23 @@ export default function BookPage() {
       {step === 3 ? (
         <div data-motion="enter">
           <StaggerIn key="step-3" className="grid gap-4 lg:grid-cols-3">
-            <section className="admin-surface p-5 sm:p-6 lg:col-span-2">
-              <div className="mb-5 flex items-center gap-2">
-                <CalendarDays className="size-5" />
-                <div>
+            <section className="admin-surface p-4 sm:p-6 lg:col-span-2">
+              <div className="mb-5 flex min-w-0 items-center gap-2">
+                <CalendarDays className="size-5 shrink-0" />
+                <div className="min-w-0">
                   <h2 className="font-semibold">Data e horário</h2>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="truncate text-sm text-muted-foreground">
                     {selectedEmployee?.name} · {selectedProduct?.name}
                   </p>
                 </div>
               </div>
 
               <div className="mb-5">
-                <BookingDatePicker value={selectedDate} onChange={setSelectedDate} />
+                <BookingDatePicker
+                  value={selectedDate}
+                  onChange={setSelectedDate}
+                  isDateDisabled={(dateKey) => isClosedDate(dateKey, hours, specialDays)}
+                />
               </div>
 
               {slotsLoading ? (
@@ -434,7 +450,7 @@ export default function BookPage() {
               </div>
             </section>
 
-            <section className="admin-surface p-5 sm:p-6">
+            <section className="admin-surface p-4 sm:p-6">
               <h2 className="font-semibold">Resumo</h2>
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex justify-between gap-3">

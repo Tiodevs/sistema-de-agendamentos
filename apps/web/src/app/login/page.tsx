@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { homePathForUser, useAuth } from '@/hooks/use-auth';
 import { loginUser } from '@/lib/api';
@@ -11,13 +11,16 @@ import { Label } from '@/components/ui/label';
 import { Loader2, LogIn } from 'lucide-react';
 import { LogoWithText } from '@/components/logo';
 import { AuthScreen } from '@/components/motion/auth-screen';
+import { PasswordInput } from '@/components/auth/password-input';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const resetDone = searchParams.get('reset') === '1';
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;
@@ -76,6 +79,12 @@ export default function LoginPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+        {resetDone ? (
+          <div className="rounded-[1.35rem] bg-primary/10 p-3 text-sm text-foreground">
+            Senha redefinida. Entre com a nova senha.
+          </div>
+        ) : null}
+
         {error ? (
           <div className="rounded-[1.35rem] bg-destructive/10 p-3 text-sm text-destructive">
             {error}
@@ -99,11 +108,18 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password">Senha</Label>
-          <Input
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="password">Senha</Label>
+            <Link
+              href="/forgot-password"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Esqueceu a senha?
+            </Link>
+          </div>
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             placeholder="Sua senha"
             required
             disabled={isLoading}

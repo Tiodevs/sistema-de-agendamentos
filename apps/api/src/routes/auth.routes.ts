@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
+import { adminMiddleware } from '../middlewares/admin.middleware';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { rateLimitByIp } from '../middlewares/rate-limit.middleware';
 import { handleAvatarUpload } from '../middlewares/upload.middleware';
 
 const authRouter = Router();
@@ -28,7 +30,7 @@ const authController = new AuthController();
  *           example: "joao@email.com"
  *         password:
  *           type: string
- *           minLength: 6
+ *           minLength: 8
  *           example: "123456"
  *         phone:
  *           type: string
@@ -132,7 +134,9 @@ const authController = new AuthController();
  *       409:
  *         description: E-mail já em uso
  */
-authRouter.post('/register', (req, res, next) => authController.register(req, res, next));
+authRouter.post('/register', rateLimitByIp('register', 20, 60 * 60 * 1000), (req, res, next) =>
+  authController.register(req, res, next),
+);
 
 /**
  * @swagger
@@ -157,7 +161,74 @@ authRouter.post('/register', (req, res, next) => authController.register(req, re
  *       401:
  *         description: Credenciais inválidas
  */
-authRouter.post('/login', (req, res, next) => authController.login(req, res, next));
+authRouter.post('/login', rateLimitByIp('login', 80, 15 * 60 * 1000), (req, res, next) =>
+  authController.login(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     summary: Solicitar redefinição de senha
+ *     description: Envia um e-mail com link temporário se o endereço estiver cadastrado. A resposta é sempre a mesma para não revelar contas existentes.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       200:
+ *         description: Pedido aceito
+ *       400:
+ *         description: Dados inválidos
+ *       429:
+ *         description: Muitas tentativas
+ */
+authRouter.post(
+  '/forgot-password',
+  rateLimitByIp('forgot-password', 8, 60 * 60 * 1000),
+  (req, res, next) => authController.forgotPassword(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Redefinir senha com o token do e-mail
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, password]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Senha redefinida
+ *       400:
+ *         description: Token inválido ou senha inválida
+ *       429:
+ *         description: Muitas tentativas
+ */
+authRouter.post(
+  '/reset-password',
+  rateLimitByIp('reset-password', 20, 60 * 60 * 1000),
+  (req, res, next) => authController.resetPassword(req, res, next),
+);
 
 /**
  * @swagger
@@ -212,6 +283,42 @@ authRouter.get('/me', authMiddleware, (req, res, next) => authController.me(req,
  */
 authRouter.patch('/profile', authMiddleware, (req, res, next) =>
   authController.updateProfile(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/password:
+ *   post:
+ *     summary: Alterar senha autenticado
+ *     description: Exige a senha atual. Encerra as demais sessões e devolve um novo token.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Senha atualizada
+ *       400:
+ *         description: Senha atual incorreta ou nova senha inválida
+ *       401:
+ *         description: Não autenticado
+ *       429:
+ *         description: Muitas tentativas
+ */
+authRouter.post('/password', authMiddleware, (req, res, next) =>
+  authController.changePassword(req, res, next),
 );
 
 /**
@@ -273,7 +380,7 @@ authRouter.delete('/profile/avatar', authMiddleware, (req, res, next) =>
  *       200:
  *         description: Lista de clientes
  */
-authRouter.get('/clients', authMiddleware, (req, res, next) =>
+authRouter.get('/clients', authMiddleware, adminMiddleware, (req, res, next) =>
   authController.getClients(req, res, next),
 );
 

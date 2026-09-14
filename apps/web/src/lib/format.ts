@@ -19,7 +19,11 @@ export function formatDuration(minutes: number): string {
 export function formatCompactHours(minutes: number): string {
   const hours = minutes / 60;
   if (hours >= 10) return `${Math.round(hours)}h`;
-  if (hours >= 1) return `${hours.toFixed(1).replace('.', ',')}h`;
+  if (hours >= 1) {
+    const rounded = Number(hours.toFixed(1));
+    if (Number.isInteger(rounded)) return `${rounded}h`;
+    return `${rounded.toFixed(1).replace('.', ',')}h`;
+  }
   return `${Math.round(minutes)}min`;
 }
 

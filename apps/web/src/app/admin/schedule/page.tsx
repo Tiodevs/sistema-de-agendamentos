@@ -210,32 +210,32 @@ export default function SchedulePage() {
         />
       </div>
 
-      <div data-motion="enter" className="admin-surface flex gap-1 p-1.5">
+      <div data-motion="enter" className="admin-surface flex min-w-0 gap-1 p-1.5">
         <button
           onClick={() => setActiveTab('hours')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-colors',
+            'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
             activeTab === 'hours'
               ? 'bg-[var(--admin-card-muted)] text-foreground'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          <Clock className="size-4" />
-          Funcionamento
+          <Clock className="size-3.5 shrink-0 sm:size-4" />
+          <span className="truncate">Funcionamento</span>
         </button>
         <button
           onClick={() => setActiveTab('special')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-colors',
+            'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
             activeTab === 'special'
               ? 'bg-[var(--admin-card-muted)] text-foreground'
               : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          <PartyPopper className="size-4" />
-          Dias especiais
+          <PartyPopper className="size-3.5 shrink-0 sm:size-4" />
+          <span className="truncate">Dias especiais</span>
           {specialDays.length > 0 && (
-            <Badge variant="secondary" className="rounded-full text-xs">
+            <Badge variant="secondary" className="rounded-full px-1.5 text-[10px] sm:text-xs">
               {specialDays.length}
             </Badge>
           )}
@@ -245,17 +245,17 @@ export default function SchedulePage() {
       {/* ─── Business Hours Tab ─── */}
       {activeTab === 'hours' && (
         <Card data-motion="enter" className="overflow-hidden">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="size-5" />
-              Horários de Funcionamento
+          <CardHeader className="px-4 sm:px-6">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base sm:text-lg">
+              <Clock className="size-5 shrink-0" />
+              <span className="leading-snug">Horários de Funcionamento</span>
             </CardTitle>
             <CardDescription>
               Defina o horário de abertura e fechamento para cada dia da semana. Os clientes só
               poderão agendar dentro desses horários.
             </CardDescription>
           </CardHeader>
-          <CardContent className="min-w-0 space-y-1">
+          <CardContent className="min-w-0 space-y-1 px-4 sm:px-6">
             <StaggerIn replayKey="hours" selector="[data-row]">
               {editHours.map((hour, i) => {
                 const dayNames = [
@@ -274,7 +274,7 @@ export default function SchedulePage() {
                     data-row
                     data-motion="lift"
                     className={cn(
-                      'flex flex-col gap-3 rounded-2xl border p-3 transition-colors md:flex-row md:items-center md:gap-4 md:px-4 md:py-3',
+                      'flex min-w-0 flex-col gap-3 rounded-2xl border p-3 transition-colors md:flex-row md:items-center md:gap-4 md:px-4 md:py-3',
                       hour.isClosed ? 'bg-muted/30 border-dashed' : 'border-border',
                     )}
                   >
@@ -302,20 +302,30 @@ export default function SchedulePage() {
                     </div>
 
                     {!hour.isClosed ? (
-                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 md:ml-auto md:flex md:w-auto">
-                        <Input
-                          type="time"
-                          value={hour.openTime}
-                          onChange={(e) => updateHour(i, 'openTime', e.target.value)}
-                          className="h-9 min-w-0 px-2 text-sm md:w-32 md:flex-none"
-                        />
-                        <span className="text-xs text-muted-foreground">até</span>
-                        <Input
-                          type="time"
-                          value={hour.closeTime}
-                          onChange={(e) => updateHour(i, 'closeTime', e.target.value)}
-                          className="h-9 min-w-0 px-2 text-sm md:w-32 md:flex-none"
-                        />
+                      <div className="grid min-w-0 grid-cols-2 items-end gap-2 md:ml-auto md:flex md:w-auto md:items-center">
+                        <div className="min-w-0">
+                          <span className="mb-1 block text-[10px] text-muted-foreground md:hidden">
+                            Abertura
+                          </span>
+                          <Input
+                            type="time"
+                            value={hour.openTime}
+                            onChange={(e) => updateHour(i, 'openTime', e.target.value)}
+                            className="h-9 w-full min-w-0 px-2 text-sm md:w-32 md:flex-none"
+                          />
+                        </div>
+                        <span className="hidden text-xs text-muted-foreground md:inline">até</span>
+                        <div className="min-w-0">
+                          <span className="mb-1 block text-[10px] text-muted-foreground md:hidden">
+                            Fechamento
+                          </span>
+                          <Input
+                            type="time"
+                            value={hour.closeTime}
+                            onChange={(e) => updateHour(i, 'closeTime', e.target.value)}
+                            className="h-9 w-full min-w-0 px-2 text-sm md:w-32 md:flex-none"
+                          />
+                        </div>
                       </div>
                     ) : (
                       <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
@@ -363,14 +373,17 @@ export default function SchedulePage() {
       {/* ─── Special Days Tab ─── */}
       {activeTab === 'special' && (
         <StaggerIn replayKey="special" selector="[data-motion='enter']" className="space-y-4">
-          <div data-motion="enter" className="flex items-center justify-between">
-            <div>
+          <div
+            data-motion="enter"
+            className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+          >
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold">Feriados e Dias Especiais</h2>
               <p className="text-sm text-muted-foreground">
                 Cadastre feriados nacionais, recesso, ou dias com horário diferenciado.
               </p>
             </div>
-            <Button onClick={() => setShowNewDay(true)} className="rounded-full">
+            <Button onClick={() => setShowNewDay(true)} className="w-full rounded-full sm:w-auto">
               <Plus className="size-4" />
               Novo Dia
             </Button>
@@ -388,31 +401,33 @@ export default function SchedulePage() {
                     key={day.id}
                     data-motion="lift"
                     className={cn(
-                      'flex items-center gap-4 rounded-lg border px-4 py-3',
+                      'flex min-w-0 flex-col gap-3 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-4',
                       day.isClosed
                         ? 'border-red-500/20 bg-red-500/5'
                         : 'border-yellow-500/20 bg-yellow-500/5',
                     )}
                   >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-background">
-                      {day.isClosed ? (
-                        <CalendarOff className="size-5 text-red-400" />
-                      ) : (
-                        <CalendarDays className="size-5 text-yellow-400" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold">{day.title}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {formatDateBR(day.date.split('T')[0])}
-                      </p>
-                      {day.description && (
-                        <p className="mt-0.5 text-xs text-muted-foreground italic">
-                          {day.description}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--admin-card-muted)]">
+                        {day.isClosed ? (
+                          <CalendarOff className="size-5 text-red-400" />
+                        ) : (
+                          <CalendarDays className="size-5 text-yellow-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">{day.title}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {formatDateBR(day.date.split('T')[0])}
                         </p>
-                      )}
+                        {day.description && (
+                          <p className="mt-0.5 text-xs text-muted-foreground italic">
+                            {day.description}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2 sm:justify-end">
                       {day.isClosed ? (
                         <Badge variant="outline" className="text-red-400 border-red-500/30">
                           Fechado
@@ -448,7 +463,7 @@ export default function SchedulePage() {
                   <div
                     key={day.id}
                     data-motion="lift"
-                    className="flex items-center gap-4 rounded-lg border border-dashed px-4 py-3 opacity-60"
+                    className="flex min-w-0 items-center gap-3 rounded-lg border border-dashed px-3 py-3 opacity-60 sm:gap-4 sm:px-4"
                   >
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                       <CalendarOff className="size-5 text-muted-foreground" />
@@ -501,7 +516,7 @@ export default function SchedulePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="special-date">Data</Label>
                 <Input
@@ -534,8 +549,8 @@ export default function SchedulePage() {
               />
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 sm:px-4">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">Estabelecimento fechado</p>
                 <p className="text-xs text-muted-foreground">
                   {newDay.isClosed
@@ -544,13 +559,14 @@ export default function SchedulePage() {
                 </p>
               </div>
               <Switch
+                className="shrink-0"
                 checked={newDay.isClosed}
                 onCheckedChange={(checked) => setNewDay({ ...newDay, isClosed: checked })}
               />
             </div>
 
             {!newDay.isClosed && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Abertura</Label>
                   <Input

@@ -24,7 +24,13 @@ function getBreadcrumb(pathname: string) {
 }
 
 function isClientUser(user: { role: string }) {
-  return user.role !== 'ADMIN';
+  return user.role === 'USER';
+}
+
+function clientUnauthorizedHref(user: { role: string; employeeId?: string | null }) {
+  if (user.role === 'ADMIN') return '/admin';
+  if (user.role === 'EMPLOYEE' || user.employeeId) return '/professional';
+  return '/login';
 }
 
 export function UserShell({ children }: { children: ReactNode }) {
@@ -35,7 +41,7 @@ export function UserShell({ children }: { children: ReactNode }) {
       roleLabel="Cliente"
       getBreadcrumb={getBreadcrumb}
       isAuthorized={isClientUser}
-      unauthorizedHref="/admin"
+      unauthorizedHref={clientUnauthorizedHref}
       notificationsHref="/appointments"
       profileHref="/profile"
       cta={{ href: '/book', label: 'Novo' }}

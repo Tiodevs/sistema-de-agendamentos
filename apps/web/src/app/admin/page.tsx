@@ -113,12 +113,12 @@ function KpiCard({
   change?: number;
 }) {
   return (
-    <section data-motion="enter" className="admin-surface p-5">
+    <section data-motion="enter" className="admin-surface p-4 sm:p-5">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{value}</p>
-      <div className="mt-2 flex flex-col gap-0.5 text-xs">
+      <p className="mt-2 text-2xl font-semibold tracking-tight break-words sm:text-3xl">{value}</p>
+      <div className="mt-2 flex min-w-0 flex-col gap-0.5 text-xs">
         {typeof change === 'number' ? <ChangeLabel value={change} /> : null}
-        {hint ? <span className="text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="break-words text-muted-foreground">{hint}</span> : null}
       </div>
     </section>
   );
@@ -223,8 +223,8 @@ export default function AdminDashboard() {
       className="space-y-4"
     >
       <section data-motion="enter" className="admin-surface p-4 sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex gap-1 overflow-x-auto text-sm">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="admin-scroll-x flex gap-1 text-sm">
             {PERIODS.map((item) => (
               <button
                 key={item.key}
@@ -263,7 +263,7 @@ export default function AdminDashboard() {
       </section>
 
       <div className={cn('space-y-4 transition-opacity', refreshing && 'opacity-60')}>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             label="Agendamentos"
             value={String(overview.monthAppointments)}
@@ -292,17 +292,17 @@ export default function AdminDashboard() {
           />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="space-y-4">
-            <section data-motion="enter" className="admin-surface p-5 sm:p-6">
-              <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="min-w-0 space-y-4">
+            <section data-motion="enter" className="admin-surface p-4 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-3 sm:mb-6">
+                <div className="min-w-0">
                   <h2 className="text-lg font-semibold tracking-tight">Tempo na agenda</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1 text-sm leading-snug text-muted-foreground">
                     {periodMeta?.rangeLabel || periodMeta?.label || 'Período selecionado'}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="hidden shrink-0 items-center gap-2 text-sm text-muted-foreground sm:flex">
                   <span>{periodMeta?.label}</span>
                   <span className="flex size-8 items-center justify-center rounded-xl bg-[var(--admin-card-muted)]">
                     <CalendarDays className="size-4" />
@@ -310,24 +310,30 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="mb-8 grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              <div className="mb-6 grid grid-cols-3 gap-2 sm:mb-8 sm:gap-4">
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                     {formatCompactHours(timeSpent.totalMinutes)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Total no período</p>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                    Total no período
+                  </p>
                 </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                     {formatCompactHours(timeSpent.completedMinutes)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Concluídas</p>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                    Concluídas
+                  </p>
                 </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                <div className="min-w-0">
+                  <p className="text-xl font-semibold tracking-tight sm:text-3xl">
                     {formatCompactHours(timeSpent.scheduledMinutes)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">Agendadas</p>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                    Agendadas
+                  </p>
                 </div>
               </div>
 
@@ -373,7 +379,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <aside className="space-y-4">
+          <aside className="min-w-0 space-y-4">
             <section
               data-motion="enter"
               className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
@@ -438,8 +444,8 @@ export default function AdminDashboard() {
               </div>
             </section>
 
-            <section data-motion="enter" className="admin-surface p-5">
-              <div className="mb-4 flex items-end justify-between gap-3">
+            <section data-motion="enter" className="admin-surface p-4 sm:p-5">
+              <div className="mb-4 flex min-w-0 items-end justify-between gap-3">
                 <div>
                   <p className="text-lg font-semibold tracking-tight">
                     {overview.totalAppointments ?? totalStatusCount} no período

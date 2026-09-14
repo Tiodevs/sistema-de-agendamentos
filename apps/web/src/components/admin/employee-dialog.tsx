@@ -22,12 +22,7 @@ interface EmployeeDialogProps {
   onSubmit: (data: EmployeePayload) => Promise<void>;
 }
 
-export function EmployeeDialog({
-  open,
-  onOpenChange,
-  employee,
-  onSubmit,
-}: EmployeeDialogProps) {
+export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: EmployeeDialogProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -39,7 +34,7 @@ export function EmployeeDialog({
   useEffect(() => {
     if (employee) {
       setName(employee.name);
-      setEmail(employee.email);
+      setEmail(employee.email || '');
       setPhone(employee.phone || '');
     } else {
       setName('');
@@ -56,8 +51,7 @@ export function EmployeeDialog({
     else if (name.trim().length < 2) newErrors.name = 'Nome deve ter pelo menos 2 caracteres';
 
     if (!email.trim()) newErrors.email = 'E-mail é obrigatório';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      newErrors.email = 'E-mail inválido';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) newErrors.email = 'E-mail inválido';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -86,9 +80,7 @@ export function EmployeeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? 'Editar Funcionário' : 'Novo Funcionário'}
-          </DialogTitle>
+          <DialogTitle>{isEditing ? 'Editar Funcionário' : 'Novo Funcionário'}</DialogTitle>
           <DialogDescription>
             {isEditing
               ? 'Altere as informações do funcionário abaixo.'
@@ -106,9 +98,7 @@ export function EmployeeDialog({
               onChange={(e) => setName(e.target.value)}
               disabled={loading}
             />
-            {errors.name && (
-              <p className="text-xs text-destructive">{errors.name}</p>
-            )}
+            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
           <div className="space-y-2">
@@ -121,9 +111,7 @@ export function EmployeeDialog({
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
             />
-            {errors.email && (
-              <p className="text-xs text-destructive">{errors.email}</p>
-            )}
+            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
           </div>
 
           <div className="space-y-2">

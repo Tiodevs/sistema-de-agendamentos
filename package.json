@@ -22,12 +22,17 @@
     "lint:web": "npm run lint --workspace=apps/web",
     "db:tunnel": "railway connect Postgres --tunnel-only --port 5433",
     "db:seed": "npm run db:seed --workspace=apps/api",
+    "test:e2e": "playwright test --grep-invert @gap",
+    "test:e2e:gaps": "playwright test --grep @gap",
+    "test:e2e:all": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,scss,md}\"",
     "clean": "rm -rf node_modules apps/*/node_modules apps/*/.next apps/*/dist packages/*/node_modules",
     "prepare": "husky || true"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "concurrently": "^9.1.2",
     "husky": "^9.1.7",
     "prettier": "^3.5.3",

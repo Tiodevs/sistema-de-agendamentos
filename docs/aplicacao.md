@@ -22,21 +22,22 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`.
 - Redirecionamento pós-login por papel: admin → `/admin`, profissional → `/professional`, cliente → `/`.
 - Logout local (remove token; o JWT não é invalidado no servidor).
-- Contas podem ser desativadas (`active = false`); login recusa conta inativa.
+- Contas podem ser desativadas (`active = false`); login recusa conta inativa e o `authMiddleware` consulta `active` de novo a cada request.
 - Senha armazenada com bcrypt (custo 12).
-- Listagem/busca de clientes autenticada (`GET /api/auth/clients`).
+- Listagem/busca de clientes restrita a admin (`GET /api/auth/clients`).
 
 ### Área do cliente
 
 - Home com resumo dos próprios agendamentos.
-- Fluxo de agendamento em 3 passos: serviço → profissional (só quem atende o serviço) → data/horário.
-- Grade de slots gerada a cada 15 minutos, no fuso `America/Sao_Paulo` (UTC−3).
-- Slots no passado, em conflito ou em dia fechado aparecem indisponíveis.
+- Fluxo de agendamento em 3 passos: serviço → profissional (só quem atende o serviço) → data/horário. Só `USER`; profissional/admin são redirecionados.
+- Grade de slots gerada a cada 15 minutos, no fuso `America/Sao_Paulo`.
+- Slots no passado, em conflito ou em dia fechado aparecem indisponíveis; o calendário desabilita domingo/feriado/dia fechado.
+- A API recusa o mesmo horário se ele não existir na grade (passado, expediente, alinhamento, fechamento).
 - Observação opcional no agendamento.
 - Preço congelado no momento da reserva (cópia do preço do produto).
 - E-mail de confirmação ao cliente e aviso ao profissional na criação do agendamento.
 - Lista “Meus horários”.
-- Cancelamento apenas dos próprios agendamentos (dispara e-mail de cancelamento).
+- Cancelamento apenas dos próprios agendamentos futuros em `SCHEDULED`/`CONFIRMED` (dispara e-mail de cancelamento).
 - Layout mobile-first (nav inferior, largura máx. ~`lg`).
 
 ### Área administrativa
@@ -64,10 +65,12 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 ### Motor de agenda
 
 - `endDate` = `date` + duração do produto.
-- Conflito: intervalo `[date, endDate)` sobreposto a outro agendamento do mesmo profissional, ignorando `CANCELLED` e `NO_SHOW`.
+- Conflito do profissional: intervalo `[date, endDate)` sobreposto a outro agendamento do mesmo profissional, ignorando `CANCELLED` e `NO_SHOW`. Trava `FOR UPDATE` + constraint `EXCLUDE` no Postgres.
+- O mesmo cliente **pode** ter dois agendamentos no mesmo horário com profissionais diferentes.
+- Reserva fora da grade (passado, fechado, desalinhado, estouro de expediente) é recusada no `create`.
 - Profissional precisa estar vinculado ao produto.
 - Produto e profissional precisam estar ativos.
-- Horário do dia: `business_hours` + override de `special_days`.
+- Horário do dia: `business_hours` + override de `special_days` (data civil UTC).
 - Domingo padrão fechado; sábados 08:00–12:00; seg–sex 08:00–18:00 (seed / default da API).
 - Status: `SCHEDULED`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`.
 
@@ -76,7 +79,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Health check `GET /api/health`.
 - OpenAPI/Swagger gerado das JSDoc nas rotas.
 - Validação de payload com Zod.
-- Helmet + CORS + Morgan na API.
+- Helmet + CORS restrito à origem do front + Morgan na API.
 - Seed idempotente (`npm run db:seed`).
 - Migrations Prisma em deploy (`prisma migrate deploy`).
 
@@ -171,7 +174,7 @@ Produto = serviço vendável (`duration` em minutos, `price` decimal 10,2). Admi
 4. Gera slots de `openTime` até `closeTime` em passos de 15 min, cada um com duração do serviço.
 5. Marca indisponível se passou ou se o intervalo cruza outro agendamento.
 
-Cliente reserva com `POST /api/appointments/book` — o `clientId` é **sempre** o do token (não aceita agendar em nome de outro). Admin usa `POST /api/appointments` com `clientId` explícito.
+Cliente reserva com `POST /api/appointments/book` — o `clientId` é **sempre** o do token (não aceita agendar em nome de outro) e o papel precisa ser `USER`. Admin usa `POST /api/appointments` com `clientId` explícito. O `create` valida a mesma grade da disponibilidade e serializa reservas do mesmo profissional.
 
 ### 4.5 Expediente
 
@@ -189,15 +192,15 @@ Agregações Prisma no mês civil do **relógio do servidor** (Railway em `us-ea
 
 Prisma 7: `provider = postgresql` no schema; URL só em `prisma.config.ts` / `DATABASE_URL`. Client via `@prisma/adapter-pg` + `pg` (`apps/api/src/config/database.ts`). Neon foi removido.
 
-| Tabela              | Função                                                    |
-| ------------------- | --------------------------------------------------------- |
-| `users`             | login: `email` único, `password`, `role`, `active`        |
-| `products`          | serviços                                                  |
-| `employees`         | profissionais; `userId` opcional                          |
-| `employee_products` | N:N profissional ↔ serviço                                |
-| `appointments`      | reserva; índices `(employeeId, date)`, `clientId`, `date` |
-| `business_hours`    | expediente semanal (`dayOfWeek` único)                    |
-| `special_days`      | exceções por data                                         |
+| Tabela              | Função                                                                                        |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `users`             | login: `email` único, `password`, `role`, `active`                                            |
+| `products`          | serviços                                                                                      |
+| `employees`         | profissionais; `userId` opcional                                                              |
+| `employee_products` | N:N profissional ↔ serviço                                                                    |
+| `appointments`      | reserva; índices `(employeeId, date)`, `clientId`, `date`; exclude de overlap do profissional |
+| `business_hours`    | expediente semanal (`dayOfWeek` único)                                                        |
+| `special_days`      | exceções por data                                                                             |
 
 Migrations em `apps/api/prisma/migrations/` (inclui `employees.userId`). Deploy: `prisma migrate deploy` no `preDeployCommand` do Railway.
 
@@ -207,27 +210,27 @@ Migrations em `apps/api/prisma/migrations/` (inclui `employees.userId`). Deploy:
 
 Base `/api`. JSON `{ status, message?, data?, errors? }`. Erros de domínio: `statusCode` no `Error`. Zod 400 com `errors[]`. Stack só se `NODE_ENV=development`.
 
-| Método                              | Rota                                    | Quem               | Função            |
-| ----------------------------------- | --------------------------------------- | ------------------ | ----------------- |
-| GET                                 | `/health`                               | público            | liveness          |
-| GET                                 | `/docs`                                 | público            | Swagger UI        |
-| POST                                | `/auth/register`                        | público            | cadastro          |
-| POST                                | `/auth/login`                           | público            | login             |
-| GET                                 | `/auth/me`                              | token              | perfil            |
-| GET                                 | `/auth/clients`                         | token              | busca clientes    |
-| CRUD + toggle                       | `/products`                             | mutações admin     | catálogo          |
-| CRUD + toggle + `PUT /:id/products` | `/employees`                            | mutações admin     | equipe            |
-| GET                                 | `/appointments/availability`            | token              | slots             |
-| GET                                 | `/appointments/my`                      | token              | do cliente        |
-| POST                                | `/appointments/book`                    | token              | reserva própria   |
-| PATCH                               | `/appointments/:id/cancel`              | token              | cancelar próprio  |
-| GET/POST/PATCH/DELETE               | `/appointments`                         | admin nas mutações | gestão            |
-| GET/PUT                             | `/schedule/business-hours`              | PUT admin          | expediente        |
-| CRUD                                | `/schedule/special-days`                | mutações admin     | feriados          |
-| GET                                 | `/dashboard/stats`                      | admin              | métricas          |
-| GET                                 | `/professional/dashboard`               | profissional       | métricas próprias |
-| GET                                 | `/professional/appointments`            | profissional       | agenda própria    |
-| PATCH                               | `/professional/appointments/:id/status` | profissional       | status permitido  |
+| Método                              | Rota                                    | Quem                                           | Função            |
+| ----------------------------------- | --------------------------------------- | ---------------------------------------------- | ----------------- |
+| GET                                 | `/health`                               | público                                        | liveness          |
+| GET                                 | `/docs`                                 | não-prod / flag                                | Swagger UI        |
+| POST                                | `/auth/register`                        | público + rate                                 | cadastro          |
+| POST                                | `/auth/login`                           | público + rate                                 | login             |
+| GET                                 | `/auth/me`                              | token                                          | perfil            |
+| GET                                 | `/auth/clients`                         | admin                                          | busca clientes    |
+| CRUD + toggle                       | `/products`                             | mutações admin; `includeInactive` só admin     | catálogo          |
+| CRUD + toggle + `PUT /:id/products` | `/employees`                            | mutações admin; listagem USER sem PII          | equipe            |
+| GET                                 | `/appointments/availability`            | token                                          | slots             |
+| GET                                 | `/appointments/my`                      | token                                          | do cliente        |
+| POST                                | `/appointments/book`                    | USER + rate                                    | reserva própria   |
+| PATCH                               | `/appointments/:id/cancel`              | dono, futuro                                   | cancelar próprio  |
+| GET/POST/PATCH/DELETE               | `/appointments`                         | GET e mutações admin; GET `/:id` dono ou admin | gestão            |
+| GET/PUT                             | `/schedule/business-hours`              | PUT admin                                      | expediente        |
+| CRUD                                | `/schedule/special-days`                | mutações admin                                 | feriados          |
+| GET                                 | `/dashboard/stats`                      | admin                                          | métricas          |
+| GET                                 | `/professional/dashboard`               | profissional                                   | métricas próprias |
+| GET                                 | `/professional/appointments`            | profissional                                   | agenda própria    |
+| PATCH                               | `/professional/appointments/:id/status` | profissional                                   | status permitido  |
 
 Swagger: JSDoc em `apps/api/src/routes/*.ts`. O `servers` do spec ainda cita `http://localhost:3001`.
 

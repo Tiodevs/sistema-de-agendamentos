@@ -50,7 +50,7 @@ export class AppointmentController {
 
       res.status(200).json({
         status: 'success',
-        data: { appointments },
+        data: { appointments: appointments.map(stripEmployeeContact) },
       });
     } catch (error) {
       next(error);
@@ -59,11 +59,23 @@ export class AppointmentController {
 
   async findById(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthenticatedRequest;
       const appointment = await appointmentService.findById(req.params.id as string);
+
+      if (!canReadAppointment(authReq, appointment)) {
+        res.status(403).json({
+          status: 'error',
+          message: 'Você não tem permissão para ver este agendamento',
+        });
+        return;
+      }
 
       res.status(200).json({
         status: 'success',
-        data: { appointment },
+        data: {
+          appointment:
+            authReq.user.role === 'USER' ? stripEmployeeContact(appointment) : appointment,
+        },
       });
     } catch (error) {
       next(error);
@@ -97,6 +109,14 @@ export class AppointmentController {
   async createForUser(req: Request, res: Response, next: NextFunction) {
     try {
       const authReq = req as AuthenticatedRequest;
+      if (authReq.user.role !== 'USER') {
+        res.status(403).json({
+          status: 'error',
+          message: 'Apenas clientes podem usar o fluxo de agendamento',
+        });
+        return;
+      }
+
       const body = { ...req.body, clientId: authReq.user.id };
       const data = createAppointmentSchema.parse(body);
       const appointment = await appointmentService.create(data);
@@ -104,7 +124,7 @@ export class AppointmentController {
       res.status(201).json({
         status: 'success',
         message: 'Agendamento criado com sucesso',
-        data: { appointment },
+        data: { appointment: stripEmployeeContact(appointment) },
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -159,22 +179,12 @@ export class AppointmentController {
   async cancelOwn(req: Request, res: Response, next: NextFunction) {
     try {
       const authReq = req as AuthenticatedRequest;
-      const appointment = await appointmentService.findById(req.params.id as string);
-
-      if (appointment.client.id !== authReq.user.id) {
-        res.status(403).json({
-          status: 'error',
-          message: 'Você só pode cancelar seus próprios agendamentos',
-        });
-        return;
-      }
-
-      const updated = await appointmentService.updateStatus(req.params.id as string, 'CANCELLED');
+      const updated = await appointmentService.cancelOwn(req.params.id as string, authReq.user.id);
 
       res.status(200).json({
         status: 'success',
         message: 'Agendamento cancelado com sucesso',
-        data: { appointment: updated },
+        data: { appointment: stripEmployeeContact(updated) },
       });
     } catch (error) {
       next(error);
@@ -206,4 +216,22 @@ export class AppointmentController {
       next(error);
     }
   }
+}
+
+function canReadAppointment(
+  req: AuthenticatedRequest,
+  appointment: {
+    client: { id: string };
+  },
+) {
+  if (req.user.role === 'ADMIN') return true;
+  if (appointment.client.id === req.user.id) return true;
+  return false;
+}
+
+function stripEmployeeContact<T extends { employee: { email?: string; phone?: string | null } }>(
+  appointment: T,
+) {
+  const { email: _email, phone: _phone, ...employee } = appointment.employee;
+  return { ...appointment, employee };
 }

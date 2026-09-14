@@ -247,21 +247,25 @@ async function main() {
     });
   }
 
-  const natal = new Date(new Date().getFullYear(), 11, 25);
-  await prisma.specialDay.upsert({
-    where: { date: natal },
-    create: {
-      date: natal,
-      title: 'Natal',
-      description: 'Estúdio fechado',
-      isClosed: true,
-    },
-    update: {
-      title: 'Natal',
-      description: 'Estúdio fechado',
-      isClosed: true,
-    },
-  });
+  await prisma.specialDay.deleteMany({ where: { title: 'Natal' } });
+  const natalYear = new Date().getFullYear();
+  for (const year of [natalYear, natalYear + 1]) {
+    const natal = new Date(Date.UTC(year, 11, 25));
+    await prisma.specialDay.upsert({
+      where: { date: natal },
+      create: {
+        date: natal,
+        title: 'Natal',
+        description: 'Estúdio fechado',
+        isClosed: true,
+      },
+      update: {
+        title: 'Natal',
+        description: 'Estúdio fechado',
+        isClosed: true,
+      },
+    });
+  }
 
   const productsByName = new Map<string, { id: string; duration: number; price: unknown }>();
   for (const product of PRODUCTS) {

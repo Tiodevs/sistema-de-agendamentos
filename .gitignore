@@ -51,6 +51,10 @@ lerna-debug.log*
 # --- Testes & cobertura ---
 coverage/
 .nyc_output/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # --- Ferramentas & cache ---
 .eslintcache

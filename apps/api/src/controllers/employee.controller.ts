@@ -6,6 +6,8 @@ import {
   assignProductsSchema,
 } from '../schemas/employee.schema';
 import { z } from 'zod';
+import { AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { httpError } from '../lib/http-error';
 
 const employeeService = new EmployeeService();
 
@@ -20,11 +22,17 @@ export class EmployeeController {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
       const includeInactive = req.query.includeInactive === 'true';
+      const authReq = req as AuthenticatedRequest;
+      if (includeInactive && authReq.user.role !== 'ADMIN') {
+        throw httpError('Acesso restrito a administradores', 403);
+      }
+
       const employees = await employeeService.findAll(includeInactive);
+      const payload = authReq.user.role === 'ADMIN' ? employees : employees.map(toPublicEmployee);
 
       res.status(200).json({
         status: 'success',
-        data: { employees },
+        data: { employees: payload },
       });
     } catch (error) {
       next(error);
@@ -33,11 +41,17 @@ export class EmployeeController {
 
   async findById(req: Request, res: Response, next: NextFunction) {
     try {
+      const authReq = req as AuthenticatedRequest;
       const employee = await employeeService.findById(req.params.id as string);
+      if (!employee.active && authReq.user.role !== 'ADMIN') {
+        throw httpError('Funcionário não encontrado', 404);
+      }
 
       res.status(200).json({
         status: 'success',
-        data: { employee },
+        data: {
+          employee: authReq.user.role === 'ADMIN' ? employee : toPublicEmployee(employee),
+        },
       });
     } catch (error) {
       next(error);
@@ -120,10 +134,7 @@ export class EmployeeController {
   async assignProducts(req: Request, res: Response, next: NextFunction) {
     try {
       const { productIds } = assignProductsSchema.parse(req.body);
-      const employee = await employeeService.assignProducts(
-        req.params.id as string,
-        productIds,
-      );
+      const employee = await employeeService.assignProducts(req.params.id as string, productIds);
 
       res.status(200).json({
         status: 'success',
@@ -142,4 +153,9 @@ export class EmployeeController {
       next(error);
     }
   }
+}
+
+function toPublicEmployee<T extends { email?: string; phone?: string | null }>(employee: T) {
+  const { email: _email, phone: _phone, ...rest } = employee;
+  return rest;
 }

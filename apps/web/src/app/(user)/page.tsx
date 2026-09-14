@@ -141,7 +141,7 @@ function InsightCard({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <section data-motion="enter" className="admin-surface p-5">
+    <section data-motion="enter" className="admin-surface p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--admin-card-muted)]">
           <Icon className="size-4 text-muted-foreground" />
@@ -347,7 +347,7 @@ export default function HomePage() {
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
     >
       <div className="space-y-4">
-        <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+        <section data-motion="enter" className="admin-surface p-4 sm:p-6">
           <p className="text-sm text-muted-foreground">{greeting}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">
             {user?.name}

@@ -209,7 +209,7 @@ export default function ProfessionalAgendaPage() {
               />
             </div>
           </div>
-          <div className="flex gap-1 overflow-x-auto text-sm">
+          <div className="admin-scroll-x flex gap-1 text-sm">
             <button
               type="button"
               onClick={() => setStatusFilter('ALL')}

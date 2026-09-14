@@ -1,6 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/auth.service';
-import { registerSchema, loginSchema, updateProfileSchema } from '../schemas/auth.schema';
+import {
+  registerSchema,
+  loginSchema,
+  updateProfileSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  changePasswordSchema,
+} from '../schemas/auth.schema';
 import { z } from 'zod';
 
 const authService = new AuthService();
@@ -164,6 +171,74 @@ export class AuthController {
         data: { clients },
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = forgotPasswordSchema.parse(req.body);
+      const message = await authService.requestPasswordReset(data.email);
+
+      res.status(200).json({
+        status: 'success',
+        message,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = resetPasswordSchema.parse(req.body);
+      await authService.resetPassword(data);
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Senha redefinida com sucesso. Entre com a nova senha.',
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async changePassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as Request & { user: { id: string } }).user.id;
+      const data = changePasswordSchema.parse(req.body);
+      const result = await authService.changePassword(userId, data);
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Senha atualizada com sucesso',
+        data: result,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
       next(error);
     }
   }

@@ -87,11 +87,18 @@ export function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }) {
   }
 
   return (
-    <div ref={ref} className="flex h-52 items-stretch gap-1.5 sm:gap-2.5">
+    <div
+      ref={ref}
+      className={cn(
+        'flex h-52 min-w-0 items-stretch gap-1.5 sm:gap-2.5',
+        weeks.length > 8 && 'admin-scroll-x',
+        weeks.length <= 4 && 'justify-center',
+      )}
+    >
       {weeks.map((week, index) => {
         const totalMinutes = week.completedMinutes + week.scheduledMinutes;
         const totalCount = (week.completedCount ?? 0) + (week.scheduledCount ?? 0);
-        const height = totalMinutes === 0 ? 14 : Math.max(18, (totalMinutes / max) * 100);
+        const height = totalMinutes === 0 ? 22 : Math.max(18, (totalMinutes / max) * 100);
         const completedShare =
           totalMinutes === 0 ? 0 : (week.completedMinutes / totalMinutes) * 100;
         const scheduledShare =
@@ -104,7 +111,11 @@ export function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }) {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="group flex min-w-0 flex-1 flex-col items-center outline-none"
+                className={cn(
+                  'group flex min-w-0 flex-col items-center outline-none',
+                  weeks.length > 8 ? 'w-9 shrink-0 sm:w-11' : 'flex-1',
+                  weeks.length <= 4 && 'max-w-16 flex-1 sm:max-w-20',
+                )}
                 aria-label={`${title}: ${totalCount} agendamentos, ${formatCompactHours(totalMinutes)}`}
               >
                 <div className="flex min-h-0 w-full flex-1 flex-col justify-end pt-1">

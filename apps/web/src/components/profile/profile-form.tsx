@@ -1,10 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Crop, Loader2, Save, Trash2 } from 'lucide-react';
+import { Camera, Crop, KeyRound, Loader2, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-import { ApiError, deleteMyAvatar, updateMyProfile, uploadMyAvatar } from '@/lib/api';
+import {
+  ApiError,
+  changePassword,
+  deleteMyAvatar,
+  updateMyProfile,
+  uploadMyAvatar,
+} from '@/lib/api';
 import { fileToObjectUrl, remoteImageToObjectUrl } from '@/lib/crop-image';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { AvatarCropDialog } from '@/components/profile/avatar-crop-dialog';
@@ -17,7 +23,7 @@ import { StaggerIn } from '@/components/motion/stagger-in';
 const PHONE_PATTERN = /^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/;
 
 export function ProfileForm() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, login } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
@@ -28,6 +34,11 @@ export function ProfileForm() {
   const [preparingCrop, setPreparingCrop] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!user) return;
@@ -152,7 +163,45 @@ export function ProfileForm() {
     }
   }
 
-  const busy = saving || uploading || removing || preparingCrop;
+  async function handleChangePassword(event: React.FormEvent) {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    if (!currentPassword) next.currentPassword = 'Senha atual é obrigatória';
+    if (!newPassword) next.newPassword = 'Nova senha é obrigatória';
+    else if (newPassword.length < 8) next.newPassword = 'Senha deve ter no mínimo 8 caracteres';
+    else if (newPassword.length > 128) next.newPassword = 'Senha deve ter no máximo 128 caracteres';
+    if (newPassword !== confirmPassword) next.confirmPassword = 'As senhas não coincidem';
+    if (currentPassword && newPassword && currentPassword === newPassword) {
+      next.newPassword = 'A nova senha deve ser diferente da atual';
+    }
+    setPasswordErrors(next);
+    if (Object.keys(next).length > 0) return;
+
+    setChangingPassword(true);
+    try {
+      const response = await changePassword({ currentPassword, newPassword });
+      if (response.data) login(response.data.user, response.data.token);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordErrors({});
+      toast.success('Senha atualizada. Outras sessões foram encerradas.');
+    } catch (error) {
+      if (error instanceof ApiError && error.errors?.length) {
+        const nextErrors: Record<string, string> = {};
+        error.errors.forEach((fieldError) => {
+          nextErrors[fieldError.field] = fieldError.message;
+        });
+        setPasswordErrors(nextErrors);
+      }
+      const message = error instanceof Error ? error.message : 'Não foi possível alterar a senha';
+      toast.error(message);
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
+  const busy = saving || uploading || removing || preparingCrop || changingPassword;
 
   return (
     <StaggerIn className="mx-auto max-w-2xl space-y-5">
@@ -163,7 +212,7 @@ export function ProfileForm() {
         />
       </div>
 
-      <section data-motion="enter" className="admin-surface p-5 sm:p-6">
+      <section data-motion="enter" className="admin-surface p-4 sm:p-6">
         <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
           <div className="relative">
             <UserAvatar
@@ -253,7 +302,7 @@ export function ProfileForm() {
       <form
         data-motion="enter"
         onSubmit={handleSubmit}
-        className="admin-surface space-y-4 p-5 sm:p-6"
+        className="admin-surface space-y-4 p-4 sm:p-6"
       >
         <div className="space-y-2">
           <Label htmlFor="profile-name">Nome completo</Label>
@@ -300,6 +349,86 @@ export function ProfileForm() {
           <Button type="submit" className="rounded-full" disabled={busy}>
             {saving ? <Loader2 className="animate-spin" /> : <Save />}
             Salvar alterações
+          </Button>
+        </div>
+      </form>
+
+      <form
+        data-motion="enter"
+        onSubmit={handleChangePassword}
+        className="admin-surface space-y-4 p-5 sm:p-6"
+      >
+        <div>
+          <h2 className="text-lg font-semibold">Alterar senha</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Informe a senha atual. Depois da troca, os outros dispositivos precisam entrar de novo.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="current-password">Senha atual</Label>
+          <input
+            type="text"
+            autoComplete="username"
+            value={user.email}
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+            className="sr-only"
+          />
+          <Input
+            id="current-password"
+            type="password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            disabled={busy}
+            autoComplete="current-password"
+          />
+          {passwordErrors.currentPassword ? (
+            <p className="text-sm text-destructive">{passwordErrors.currentPassword}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="new-password">Nova senha</Label>
+          <Input
+            id="new-password"
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            disabled={busy}
+            autoComplete="new-password"
+            placeholder="Mínimo 8 caracteres"
+            minLength={8}
+            maxLength={128}
+          />
+          {passwordErrors.newPassword ? (
+            <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="confirm-new-password">Confirmar nova senha</Label>
+          <Input
+            id="confirm-new-password"
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            disabled={busy}
+            autoComplete="new-password"
+            placeholder="Repita a nova senha"
+            minLength={8}
+            maxLength={128}
+          />
+          {passwordErrors.confirmPassword ? (
+            <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <Button type="submit" className="rounded-full" disabled={busy}>
+            {changingPassword ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            Atualizar senha
           </Button>
         </div>
       </form>

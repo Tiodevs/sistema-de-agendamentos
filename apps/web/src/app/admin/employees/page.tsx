@@ -65,7 +65,7 @@ export default function EmployeesPage() {
   const filteredEmployees = employees.filter((employee) => {
     const matchesSearch =
       employee.name.toLowerCase().includes(search.toLowerCase()) ||
-      employee.email.toLowerCase().includes(search.toLowerCase());
+      employee.email?.toLowerCase().includes(search.toLowerCase());
     if (!matchesSearch) return false;
     if (visibility === 'ACTIVE') return employee.active;
     if (visibility === 'INACTIVE') return !employee.active;
@@ -158,7 +158,7 @@ export default function EmployeesPage() {
 
       <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-1 overflow-x-auto text-sm">
+          <div className="admin-scroll-x flex gap-1 text-sm">
             {(
               [
                 ['ALL', 'Todos'],
@@ -272,7 +272,9 @@ export default function EmployeesPage() {
                     {employee.active ? 'Profissional' : 'Inativo'}
                   </p>
                   <h2 className="mt-1 font-semibold">{employee.name}</h2>
-                  <p className="mt-1 truncate text-sm text-muted-foreground">{employee.email}</p>
+                  <p className="mt-1 truncate text-sm text-muted-foreground">
+                    {employee.email || 'Sem e-mail'}
+                  </p>
                 </article>
               );
             })}

@@ -6,6 +6,8 @@ import {
 } from '../emails/appointment-scheduled';
 import { getInlineAttachments } from '../emails/assets';
 import { professionalNewAppointmentEmail } from '../emails/professional-new-appointment';
+import { passwordChangedEmail } from '../emails/password-changed';
+import { passwordResetEmail } from '../emails/password-reset';
 import { welcomeEmail } from '../emails/welcome';
 
 export interface AppointmentMailInput {
@@ -101,6 +103,36 @@ class EmailService {
     });
   }
 
+  async sendPasswordReset(input: {
+    id: string;
+    name: string;
+    email: string;
+    resetUrl: string;
+    tokenId: string;
+  }) {
+    const content = passwordResetEmail(input.name, input.resetUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `password-reset/${input.tokenId}`,
+      tags: [{ name: 'type', value: 'password-reset' }],
+    });
+  }
+
+  async sendPasswordChanged(user: { id: string; name: string; email: string; changedAt: Date }) {
+    const content = passwordChangedEmail(user.name);
+    await this.send({
+      to: user.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `password-changed/${user.id}/${user.changedAt.getTime()}`,
+      tags: [{ name: 'type', value: 'password-changed' }],
+    });
+  }
+
   private async send(input: {
     to: string;
     subject: string;
@@ -169,4 +201,23 @@ export function notifyAppointmentCancelled(appointment: AppointmentMailInput) {
 
 export function notifyWelcome(user: { id: string; name: string; email: string }) {
   dispatch('welcome', () => emailService.sendWelcome(user));
+}
+
+export function notifyPasswordReset(input: {
+  id: string;
+  name: string;
+  email: string;
+  resetUrl: string;
+  tokenId: string;
+}) {
+  dispatch('password-reset', () => emailService.sendPasswordReset(input));
+}
+
+export function notifyPasswordChanged(user: {
+  id: string;
+  name: string;
+  email: string;
+  changedAt: Date;
+}) {
+  dispatch('password-changed', () => emailService.sendPasswordChanged(user));
 }

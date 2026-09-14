@@ -7,10 +7,14 @@ import {
   getClients,
   getAvailableSlots,
   createAppointment,
+  getBusinessHours,
+  getSpecialDays,
   type Product,
   type Employee,
   type Client,
   type AvailabilitySlot,
+  type BusinessHour,
+  type SpecialDay,
 } from '@/lib/api';
 import { formatCurrency, formatDuration } from '@/lib/format';
 import { toast } from 'sonner';
@@ -37,6 +41,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { isClosedDate, nextOpenDateKey, todayDateKey } from '@/lib/datetime';
 
 type Step = 1 | 2 | 3;
 
@@ -82,14 +87,23 @@ export default function NewAppointmentPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [notes, setNotes] = useState('');
+  const [hours, setHours] = useState<BusinessHour[]>([]);
+  const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
 
   // Load initial data
   useEffect(() => {
     async function loadData() {
       try {
-        const [prodRes, clientRes] = await Promise.all([getProducts(false), getClients()]);
+        const [prodRes, clientRes, hoursRes, specialRes] = await Promise.all([
+          getProducts(false),
+          getClients(),
+          getBusinessHours().catch(() => null),
+          getSpecialDays().catch(() => null),
+        ]);
         if (prodRes.data?.products) setProducts(prodRes.data.products);
         if (clientRes.data?.clients) setClients(clientRes.data.clients);
+        if (hoursRes?.data?.hours) setHours(hoursRes.data.hours);
+        if (specialRes?.data?.days) setSpecialDays(specialRes.data.days);
       } catch {
         toast.error('Erro ao carregar dados');
       } finally {
@@ -147,14 +161,16 @@ export default function NewAppointmentPage() {
 
   // Set first available date when entering step 3
   useEffect(() => {
-    if (step === 3 && !selectedDate) {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      setSelectedDate(`${yyyy}-${mm}-${dd}`);
+    if (step !== 3) return;
+    const fallback = nextOpenDateKey(hours, specialDays, todayDateKey());
+    if (!selectedDate) {
+      setSelectedDate(fallback);
+      return;
     }
-  }, [step, selectedDate]);
+    if (hours.length && isClosedDate(selectedDate, hours, specialDays)) {
+      setSelectedDate(fallback);
+    }
+  }, [step, selectedDate, hours, specialDays]);
 
   // Client search
   const filteredClients = clients.filter(
@@ -352,7 +368,9 @@ export default function NewAppointmentPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{employee.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{employee.email}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {employee.email || 'Profissional'}
+                        </p>
                       </div>
                     </button>
                   ))}
@@ -379,7 +397,11 @@ export default function NewAppointmentPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <BookingDatePicker value={selectedDate} onChange={setSelectedDate} />
+              <BookingDatePicker
+                value={selectedDate}
+                onChange={setSelectedDate}
+                isDateDisabled={(dateKey) => isClosedDate(dateKey, hours, specialDays)}
+              />
 
               {/* Time slots */}
               {slotsLoading ? (

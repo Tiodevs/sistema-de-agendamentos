@@ -251,8 +251,8 @@ export function AppShell({
           />
         </aside>
 
-        <section className="admin-panel min-h-[calc(100dvh-1.5rem)] min-w-0 flex-1 rounded-[28px] sm:min-h-[calc(100dvh-2rem)] sm:rounded-[32px] lg:min-h-[calc(100dvh-2.5rem)]">
-          <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6">
+        <section className="admin-panel min-h-[calc(100dvh-1.5rem)] min-w-0 flex-1 overflow-x-clip rounded-[28px] sm:min-h-[calc(100dvh-2rem)] sm:rounded-[32px] lg:min-h-[calc(100dvh-2.5rem)]">
+          <header className="flex items-center justify-between gap-2 px-3 py-4 sm:gap-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetTrigger asChild>
@@ -364,7 +364,7 @@ export function AppShell({
             </div>
           </header>
 
-          <main className="px-4 pb-5 sm:px-6 lg:px-7">{children}</main>
+          <main className="min-w-0 overflow-x-clip px-3 pb-5 sm:px-6 lg:px-7">{children}</main>
         </section>
       </div>
     </div>

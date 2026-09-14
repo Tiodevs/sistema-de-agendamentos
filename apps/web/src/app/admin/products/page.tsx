@@ -139,7 +139,7 @@ export default function ProductsPage() {
 
       <section data-motion="enter" className="admin-surface p-4 sm:p-5">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-1 overflow-x-auto text-sm">
+          <div className="admin-scroll-x flex gap-1 text-sm">
             {(
               [
                 ['ALL', 'Todos'],

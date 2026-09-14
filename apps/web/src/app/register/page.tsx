@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, UserPlus } from 'lucide-react';
 import { LogoWithText } from '@/components/logo';
 import { AuthScreen } from '@/components/motion/auth-screen';
+import { PasswordInput } from '@/components/auth/password-input';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -131,12 +132,13 @@ export default function RegisterPage() {
 
         <div className="space-y-2">
           <Label htmlFor="password">Senha</Label>
-          <Input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
-            placeholder="Mínimo 6 caracteres"
+            placeholder="Mínimo 8 caracteres"
             required
+            minLength={8}
+            maxLength={128}
             disabled={isLoading}
             autoComplete="new-password"
           />
@@ -147,12 +149,13 @@ export default function RegisterPage() {
 
         <div className="space-y-2">
           <Label htmlFor="confirmPassword">Confirmar senha</Label>
-          <Input
+          <PasswordInput
             id="confirmPassword"
             name="confirmPassword"
-            type="password"
             placeholder="Repita a senha"
             required
+            minLength={8}
+            maxLength={128}
             disabled={isLoading}
             autoComplete="new-password"
           />

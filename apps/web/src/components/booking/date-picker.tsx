@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { formatLongDate, todayDateKey, weekdayFromDateKey } from '@/lib/datetime';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MONTHS = [
@@ -29,99 +30,91 @@ const MONTHS = [
 ];
 const MAX_MONTHS_AHEAD = 24;
 
-export function toDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 export function parseDateKey(dateKey: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
-  return new Date(year, month - 1, day);
+  return { year, month, day };
 }
 
-export function todayDateKey() {
-  return toDateKey(new Date());
+function civilKey(year: number, monthIndex: number, day: number) {
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function startOfMonth(year: number, month: number) {
-  return new Date(year, month, 1);
+function addMonths(year: number, monthIndex: number, delta: number) {
+  const date = new Date(Date.UTC(year, monthIndex + delta, 1));
+  return { year: date.getUTCFullYear(), monthIndex: date.getUTCMonth() };
 }
 
-function clampMonth(date: Date, min: Date, max: Date) {
-  if (date < min) return min;
-  if (date > max) return max;
-  return date;
+function daysInMonth(year: number, monthIndex: number) {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
 }
 
-function formatLongDate(dateKey: string) {
-  const formatted = parseDateKey(dateKey).toLocaleDateString('pt-BR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+function monthValue(year: number, monthIndex: number) {
+  return year * 12 + monthIndex;
 }
 
 export function BookingDatePicker({
   value,
   onChange,
+  isDateDisabled,
 }: {
   value: string;
   onChange: (dateKey: string) => void;
+  isDateDisabled?: (dateKey: string) => boolean;
 }) {
-  const today = useMemo(() => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    return now;
-  }, []);
-  const minMonth = useMemo(() => startOfMonth(today.getFullYear(), today.getMonth()), [today]);
-  const maxDay = useMemo(() => {
-    const date = new Date(today);
-    date.setMonth(date.getMonth() + MAX_MONTHS_AHEAD);
-    return date;
-  }, [today]);
-  const maxMonth = useMemo(() => startOfMonth(maxDay.getFullYear(), maxDay.getMonth()), [maxDay]);
+  const todayKey = todayDateKey();
+  const today = parseDateKey(todayKey);
+  const minMonthValue = monthValue(today.year, today.month - 1);
+  const maxParts = addMonths(today.year, today.month - 1, MAX_MONTHS_AHEAD);
+  const maxMonthValue = monthValue(maxParts.year, maxParts.monthIndex);
+  const maxKey = civilKey(
+    maxParts.year,
+    maxParts.monthIndex,
+    daysInMonth(maxParts.year, maxParts.monthIndex),
+  );
   const years = useMemo(() => {
     const list: number[] = [];
-    for (let year = minMonth.getFullYear(); year <= maxMonth.getFullYear(); year += 1) {
+    for (let year = today.year; year <= maxParts.year; year += 1) {
       list.push(year);
     }
     return list;
-  }, [minMonth, maxMonth]);
+  }, [today.year, maxParts.year]);
 
   const initial = value ? parseDateKey(value) : today;
-  const [viewYear, setViewYear] = useState(initial.getFullYear());
-  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+  const [viewYear, setViewYear] = useState(initial.year);
+  const [viewMonth, setViewMonth] = useState(initial.month - 1);
 
   useEffect(() => {
     if (!value) return;
     const next = parseDateKey(value);
-    setViewYear(next.getFullYear());
-    setViewMonth(next.getMonth());
+    setViewYear(next.year);
+    setViewMonth(next.month - 1);
   }, [value]);
 
-  function setView(year: number, month: number) {
-    const next = clampMonth(startOfMonth(year, month), minMonth, maxMonth);
-    setViewYear(next.getFullYear());
-    setViewMonth(next.getMonth());
+  function setView(year: number, monthIndex: number) {
+    const nextValue = monthValue(year, monthIndex);
+    if (nextValue < minMonthValue) {
+      setViewYear(today.year);
+      setViewMonth(today.month - 1);
+      return;
+    }
+    if (nextValue > maxMonthValue) {
+      setViewYear(maxParts.year);
+      setViewMonth(maxParts.monthIndex);
+      return;
+    }
+    setViewYear(year);
+    setViewMonth(monthIndex);
   }
 
-  const canGoPrev = startOfMonth(viewYear, viewMonth) > minMonth;
-  const canGoNext = startOfMonth(viewYear, viewMonth) < maxMonth;
-
+  const canGoPrev = monthValue(viewYear, viewMonth) > minMonthValue;
+  const canGoNext = monthValue(viewYear, viewMonth) < maxMonthValue;
+  const firstWeekday = weekdayFromDateKey(civilKey(viewYear, viewMonth, 1));
+  const monthDays = daysInMonth(viewYear, viewMonth);
   const cells = useMemo(() => {
-    const firstWeekday = startOfMonth(viewYear, viewMonth).getDay();
-    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     const leading = Array.from({ length: firstWeekday }, () => null);
-    const days = Array.from({ length: daysInMonth }, (_, index) => index + 1);
+    const days = Array.from({ length: monthDays }, (_, index) => index + 1);
     return [...leading, ...days];
-  }, [viewYear, viewMonth]);
-
-  const todayKey = toDateKey(today);
-  const maxKey = toDateKey(maxDay);
+  }, [firstWeekday, monthDays]);
 
   return (
     <div className="rounded-[1.35rem] bg-[var(--admin-card-muted)] p-3 sm:p-4">
@@ -133,15 +126,15 @@ export function BookingDatePicker({
           >
             <SelectTrigger
               size="sm"
-              className="h-10 min-w-0 w-full flex-1 rounded-full bg-[var(--admin-panel)] sm:h-9"
+              className="h-10 min-w-0 w-full flex-1 rounded-full bg-[var(--admin-card)] sm:h-9"
               aria-label="Mês"
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="rounded-2xl">
               {MONTHS.map((label, month) => {
-                const option = startOfMonth(viewYear, month);
-                const disabled = option < minMonth || option > maxMonth;
+                const optionValue = monthValue(viewYear, month);
+                const disabled = optionValue < minMonthValue || optionValue > maxMonthValue;
                 return (
                   <SelectItem key={label} value={String(month)} disabled={disabled}>
                     {label}
@@ -156,7 +149,7 @@ export function BookingDatePicker({
           >
             <SelectTrigger
               size="sm"
-              className="h-10 w-[7.25rem] rounded-full bg-[var(--admin-panel)] sm:h-9"
+              className="h-10 w-[7.25rem] rounded-full bg-[var(--admin-card)] sm:h-9"
               aria-label="Ano"
             >
               <SelectValue />
@@ -177,8 +170,9 @@ export function BookingDatePicker({
             className="h-10 rounded-full px-3 sm:h-9"
             onClick={() => {
               onChange(todayKey);
-              setView(today.getFullYear(), today.getMonth());
+              setView(today.year, today.month - 1);
             }}
+            disabled={Boolean(isDateDisabled?.(todayKey))}
           >
             Hoje
           </Button>
@@ -187,7 +181,10 @@ export function BookingDatePicker({
             variant="ghost"
             size="icon"
             className="size-10 rounded-2xl sm:size-9"
-            onClick={() => setView(viewYear, viewMonth - 1)}
+            onClick={() => {
+              const previous = addMonths(viewYear, viewMonth, -1);
+              setView(previous.year, previous.monthIndex);
+            }}
             disabled={!canGoPrev}
             aria-label="Mês anterior"
           >
@@ -198,7 +195,10 @@ export function BookingDatePicker({
             variant="ghost"
             size="icon"
             className="size-10 rounded-2xl sm:size-9"
-            onClick={() => setView(viewYear, viewMonth + 1)}
+            onClick={() => {
+              const next = addMonths(viewYear, viewMonth, 1);
+              setView(next.year, next.monthIndex);
+            }}
             disabled={!canGoNext}
             aria-label="Próximo mês"
           >
@@ -221,11 +221,11 @@ export function BookingDatePicker({
             return <div key={`empty-${index}`} />;
           }
 
-          const date = new Date(viewYear, viewMonth, day);
-          const dateKey = toDateKey(date);
+          const dateKey = civilKey(viewYear, viewMonth, day);
           const selected = value === dateKey;
           const isToday = dateKey === todayKey;
-          const disabled = dateKey < todayKey || dateKey > maxKey;
+          const disabled =
+            dateKey < todayKey || dateKey > maxKey || Boolean(isDateDisabled?.(dateKey));
 
           return (
             <button

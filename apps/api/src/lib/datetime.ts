@@ -1,5 +1,26 @@
 export const TIME_ZONE = 'America/Sao_Paulo';
 
+/** Civil date `YYYY-MM-DD` in the given IANA time zone. */
+export function dateKeyFromInstant(date: Date, timeZone = TIME_ZONE) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+/** UTC midnight for a `DATE` column lookup (`special_days.date`). */
+export function calendarDateUtc(dateKey: string) {
+  return new Date(`${dateKey}T00:00:00.000Z`);
+}
+
+/** 0 = Sunday … 6 = Saturday for a civil date key, independent of server TZ. */
+export function weekdayFromDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
 export type ZonedParts = {
   year: number;
   month: number;
@@ -63,6 +84,12 @@ export function zonedDate(
     shown.second,
   );
   return new Date(utcGuess - (asIfLocal - utcGuess) + ms);
+}
+
+export function zonedDateFromKeyAndTime(dateKey: string, timeHHmm: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const [hour, minute] = timeHHmm.split(':').map(Number);
+  return zonedDate(year, month, day, hour, minute, 0, 0);
 }
 
 export function startOfZonedDay(date: Date) {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AppointmentController } from '../controllers/appointment.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { adminMiddleware } from '../middlewares/admin.middleware';
+import { rateLimitByUser } from '../middlewares/rate-limit.middleware';
 
 const appointmentRouter = Router();
 const appointmentController = new AppointmentController();
@@ -199,8 +200,11 @@ appointmentRouter.get('/my', authMiddleware, (req, res, next) =>
  *       409:
  *         description: Conflito de horário
  */
-appointmentRouter.post('/book', authMiddleware, (req, res, next) =>
-  appointmentController.createForUser(req, res, next),
+appointmentRouter.post(
+  '/book',
+  authMiddleware,
+  rateLimitByUser('book', 80, 15 * 60 * 1000),
+  (req, res, next) => appointmentController.createForUser(req, res, next),
 );
 
 /**
@@ -234,8 +238,8 @@ appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
  * @swagger
  * /api/appointments:
  *   get:
- *     summary: Listar agendamentos
- *     description: Retorna agendamentos com filtros opcionais.
+ *     summary: Listar agendamentos (Admin)
+ *     description: Retorna agendamentos com filtros opcionais. Restrito a administradores.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -267,7 +271,7 @@ appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
  *       200:
  *         description: Lista de agendamentos
  */
-appointmentRouter.get('/', authMiddleware, (req, res, next) =>
+appointmentRouter.get('/', authMiddleware, adminMiddleware, (req, res, next) =>
   appointmentController.findAll(req, res, next),
 );
 
@@ -276,6 +280,7 @@ appointmentRouter.get('/', authMiddleware, (req, res, next) =>
  * /api/appointments/{id}:
  *   get:
  *     summary: Buscar agendamento por ID
+ *     description: Admin vê qualquer agendamento. O cliente só vê o próprio.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []

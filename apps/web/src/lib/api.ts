@@ -90,6 +90,33 @@ export async function loginUser(body: {
   });
 }
 
+export async function requestPasswordReset(email: string): Promise<ApiResponse<void>> {
+  return apiRequest('/api/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(body: {
+  token: string;
+  password: string;
+}): Promise<ApiResponse<void>> {
+  return apiRequest('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function changePassword(body: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<ApiResponse<AuthData>> {
+  return apiRequest<AuthData>('/api/auth/password', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getMe(
   signal?: AbortSignal,
 ): Promise<ApiResponse<{ user: AuthData['user'] }>> {
@@ -214,8 +241,8 @@ export interface EmployeeProduct {
 export interface Employee {
   id: string;
   name: string;
-  email: string;
-  phone: string | null;
+  email?: string;
+  phone?: string | null;
   avatar: string | null;
   active: boolean;
   products: EmployeeProduct[];

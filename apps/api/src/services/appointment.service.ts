@@ -1,13 +1,22 @@
 import { prisma } from '../config/database';
 import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
+import {
+  dayBounds,
+  enumerateSlots,
+  findMatchingSlot,
+  isEmployeeOverlapError,
+} from '../lib/booking-slot';
+import { dateKeyFromInstant } from '../lib/datetime';
+import { httpError } from '../lib/http-error';
 import { CreateAppointmentInput } from '../schemas/appointment.schema';
 import { notifyAppointmentCancelled, notifyAppointmentScheduled } from './email.service';
 import { ScheduleService } from './schedule.service';
 
-// Intervalo entre slots em minutos
-const SLOT_INTERVAL = 15;
-
 const scheduleService = new ScheduleService();
+const ACTIVE_STATUSES = {
+  notIn: ['CANCELLED', 'NO_SHOW'] as Array<'CANCELLED' | 'NO_SHOW'>,
+};
+const CLIENT_CANCELLABLE = new Set(['SCHEDULED', 'CONFIRMED']);
 
 export class AppointmentService {
   async findAll(filters?: {
@@ -44,101 +53,88 @@ export class AppointmentService {
     });
 
     if (!appointment) {
-      const error = new Error('Agendamento não encontrado') as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
+      throw httpError('Agendamento não encontrado', 404);
     }
 
     return mapAppointment(appointment);
   }
 
   async create(data: CreateAppointmentInput) {
-    // Validar que o produto existe e está ativo
     const product = await prisma.product.findUnique({ where: { id: data.productId } });
     if (!product || !product.active) {
-      const error = new Error('Produto não encontrado ou inativo') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Produto não encontrado ou inativo', 400);
     }
 
-    // Validar que o funcionário existe e está ativo
     const employee = await prisma.employee.findUnique({ where: { id: data.employeeId } });
     if (!employee || !employee.active) {
-      const error = new Error('Funcionário não encontrado ou inativo') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Funcionário não encontrado ou inativo', 400);
     }
 
-    // Validar que o funcionário está vinculado ao produto
     const assignment = await prisma.employeeProduct.findUnique({
       where: { employeeId_productId: { employeeId: data.employeeId, productId: data.productId } },
     });
     if (!assignment) {
-      const error = new Error('Este funcionário não atende este produto') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Este funcionário não atende este produto', 400);
     }
 
-    // Validar que o cliente existe
     const client = await prisma.user.findUnique({ where: { id: data.clientId } });
     if (!client) {
-      const error = new Error('Cliente não encontrado') as Error & { statusCode: number };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Cliente não encontrado', 400);
     }
 
     const startDate = new Date(data.date);
     const endDate = new Date(startDate.getTime() + product.duration * 60 * 1000);
+    await this.assertBookableInstant(data.employeeId, product.duration, startDate);
 
-    // Verificar conflito de horário para o funcionário
-    const conflict = await prisma.appointment.findFirst({
-      where: {
-        employeeId: data.employeeId,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        AND: [{ date: { lt: endDate } }, { endDate: { gt: startDate } }],
-      },
-    });
+    try {
+      const appointment = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM employees WHERE id = ${data.employeeId} FOR UPDATE`;
 
-    if (conflict) {
-      const error = new Error('O funcionário já possui um agendamento neste horário') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 409;
+        const conflict = await tx.appointment.findFirst({
+          where: {
+            employeeId: data.employeeId,
+            status: ACTIVE_STATUSES,
+            AND: [{ date: { lt: endDate } }, { endDate: { gt: startDate } }],
+          },
+        });
+
+        if (conflict) {
+          throw httpError('O funcionário já possui um agendamento neste horário', 409);
+        }
+
+        return tx.appointment.create({
+          data: {
+            clientId: data.clientId,
+            productId: data.productId,
+            employeeId: data.employeeId,
+            date: startDate,
+            endDate,
+            price: product.price,
+            notes: data.notes || null,
+          },
+          include: appointmentInclude,
+        });
+      });
+
+      const mapped = mapAppointment(appointment);
+
+      notifyAppointmentScheduled({
+        id: mapped.id,
+        date: mapped.date,
+        price: mapped.price,
+        notes: mapped.notes,
+        client: mapped.client,
+        product: mapped.product,
+        employee: mapped.employee,
+      });
+
+      return mapped;
+    } catch (error) {
+      if (isEmployeeOverlapError(error)) {
+        throw httpError('O funcionário já possui um agendamento neste horário', 409);
+      }
       throw error;
     }
-
-    const appointment = await prisma.appointment.create({
-      data: {
-        clientId: data.clientId,
-        productId: data.productId,
-        employeeId: data.employeeId,
-        date: startDate,
-        endDate,
-        price: product.price,
-        notes: data.notes || null,
-      },
-      include: appointmentInclude,
-    });
-
-    const mapped = mapAppointment(appointment);
-
-    notifyAppointmentScheduled({
-      id: mapped.id,
-      date: mapped.date,
-      price: mapped.price,
-      notes: mapped.notes,
-      client: mapped.client,
-      product: mapped.product,
-      employee: mapped.employee,
-    });
-
-    return mapped;
   }
 
   async updateStatus(id: string, status: string) {
@@ -175,6 +171,24 @@ export class AppointmentService {
     return mapped;
   }
 
+  async cancelOwn(id: string, clientId: string) {
+    const appointment = await this.findById(id);
+
+    if (appointment.client.id !== clientId) {
+      throw httpError('Você só pode cancelar seus próprios agendamentos', 403);
+    }
+
+    if (!CLIENT_CANCELLABLE.has(appointment.status)) {
+      throw httpError('Este agendamento não pode ser cancelado', 400);
+    }
+
+    if (new Date(appointment.date) <= new Date()) {
+      throw httpError('Não é possível cancelar um agendamento que já passou', 400);
+    }
+
+    return this.updateStatus(id, 'CANCELLED');
+  }
+
   async delete(id: string) {
     await this.findById(id);
     await prisma.appointment.delete({ where: { id } });
@@ -185,42 +199,25 @@ export class AppointmentService {
    * Usa os horários de funcionamento configurados e respeita dias especiais/feriados.
    */
   async getAvailableSlots(employeeId: string, productId: string, dateStr: string) {
-    // Validar produto
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product?.active) {
-      const error = new Error('Produto não encontrado ou inativo') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Produto não encontrado ou inativo', 400);
     }
 
-    // Validar funcionário
     const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
     if (!employee?.active) {
-      const error = new Error('Funcionário não encontrado ou inativo') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Funcionário não encontrado ou inativo', 400);
     }
 
-    // Validar vínculo
     const assignment = await prisma.employeeProduct.findUnique({
       where: { employeeId_productId: { employeeId, productId } },
     });
     if (!assignment) {
-      const error = new Error('Este funcionário não atende este produto') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 400;
-      throw error;
+      throw httpError('Este funcionário não atende este produto', 400);
     }
 
-    // Buscar horário de funcionamento para essa data (considera dias especiais)
     const schedule = await scheduleService.getHoursForDate(dateStr);
 
-    // Se o dia estiver fechado, retornar sem slots
     if (schedule.isClosed) {
       return {
         date: dateStr,
@@ -232,50 +229,30 @@ export class AppointmentService {
       };
     }
 
-    const duration = product.duration;
-
-    // Criar data no fuso de São Paulo (UTC-3)
-    const dayStart = new Date(`${dateStr}T${schedule.openTime}:00-03:00`);
-    const dayEnd = new Date(`${dateStr}T${schedule.closeTime}:00-03:00`);
-
-    // Buscar agendamentos do funcionário naquele dia (exceto cancelados)
+    const { dayStart, dayEnd } = dayBounds(dateStr, schedule.openTime, schedule.closeTime);
     const existingAppointments = await prisma.appointment.findMany({
       where: {
         employeeId,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        date: { gte: dayStart },
-        endDate: { lte: new Date(dayEnd.getTime() + 24 * 60 * 60 * 1000) },
-        AND: [{ date: { lt: dayEnd } }],
+        status: ACTIVE_STATUSES,
+        date: { lt: dayEnd },
+        endDate: { gt: dayStart },
       },
       orderBy: { date: 'asc' },
     });
 
-    // Gerar todos os slots possíveis
-    const slots: { start: string; end: string; available: boolean }[] = [];
     const now = new Date();
-
-    let current = new Date(dayStart);
-    while (current.getTime() + duration * 60 * 1000 <= dayEnd.getTime()) {
-      const slotEnd = new Date(current.getTime() + duration * 60 * 1000);
-
-      // Verificar se o slot não está no passado
-      const isPast = current <= now;
-
-      // Verificar conflito com agendamentos existentes
+    const slots = enumerateSlots(dayStart, dayEnd, product.duration).map((slot) => {
+      const isPast = slot.start <= now;
       const hasConflict = existingAppointments.some((appt) => {
-        const apptStart = new Date(appt.date);
-        const apptEnd = new Date(appt.endDate);
-        return current < apptEnd && slotEnd > apptStart;
+        return slot.start < appt.endDate && slot.end > appt.date;
       });
 
-      slots.push({
-        start: current.toISOString(),
-        end: slotEnd.toISOString(),
+      return {
+        start: slot.start.toISOString(),
+        end: slot.end.toISOString(),
         available: !hasConflict && !isPast,
-      });
-
-      current = new Date(current.getTime() + SLOT_INTERVAL * 60 * 1000);
-    }
+      };
+    });
 
     return {
       date: dateStr,
@@ -285,5 +262,27 @@ export class AppointmentService {
       isClosed: false,
       slots,
     };
+  }
+
+  private async assertBookableInstant(
+    employeeId: string,
+    durationMinutes: number,
+    startDate: Date,
+  ) {
+    if (startDate.getTime() <= Date.now()) {
+      throw httpError('Não é possível agendar no passado', 400);
+    }
+
+    const dateStr = dateKeyFromInstant(startDate);
+    const schedule = await scheduleService.getHoursForDate(dateStr);
+    if (schedule.isClosed) {
+      throw httpError('Estúdio fechado neste dia', 400);
+    }
+
+    const { dayStart, dayEnd } = dayBounds(dateStr, schedule.openTime, schedule.closeTime);
+    const slots = enumerateSlots(dayStart, dayEnd, durationMinutes);
+    if (!findMatchingSlot(slots, startDate)) {
+      throw httpError('Horário indisponível para este serviço', 400);
+    }
   }
 }
