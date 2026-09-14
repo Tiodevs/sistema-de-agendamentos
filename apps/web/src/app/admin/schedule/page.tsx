@@ -40,9 +40,12 @@ import {
   CalendarDays,
   CheckCircle2,
   PartyPopper,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { ScheduleHoursEditor } from '@/components/admin/schedule-hours-editor';
+import { ProfessionalSchedulePanel } from '@/components/admin/professional-schedule-panel';
 import { StaggerIn } from '@/components/motion/stagger-in';
 
 function formatDateBR(dateStr: string): string {
@@ -56,7 +59,7 @@ function formatDateBR(dateStr: string): string {
 }
 
 export default function SchedulePage() {
-  const [activeTab, setActiveTab] = useState<'hours' | 'special'>('hours');
+  const [activeTab, setActiveTab] = useState<'hours' | 'special' | 'professionals'>('hours');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -206,7 +209,7 @@ export default function SchedulePage() {
       <div data-motion="enter">
         <AdminPageHeader
           title="Horários e feriados"
-          description="Expediente da semana e dias com regra especial."
+          description="Expediente do estabelecimento, dias especiais e agenda por profissional."
         />
       </div>
 
@@ -240,6 +243,18 @@ export default function SchedulePage() {
             </Badge>
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('professionals')}
+          className={cn(
+            'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
+            activeTab === 'professionals'
+              ? 'bg-[var(--admin-card-muted)] text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Users className="size-3.5 shrink-0 sm:size-4" />
+          <span className="truncate">Por profissional</span>
+        </button>
       </div>
 
       {/* ─── Business Hours Tab ─── */}
@@ -256,87 +271,7 @@ export default function SchedulePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="min-w-0 space-y-1 px-4 sm:px-6">
-            <StaggerIn replayKey="hours" selector="[data-row]">
-              {editHours.map((hour, i) => {
-                const dayNames = [
-                  'Domingo',
-                  'Segunda-feira',
-                  'Terça-feira',
-                  'Quarta-feira',
-                  'Quinta-feira',
-                  'Sexta-feira',
-                  'Sábado',
-                ];
-                const dayAbbr = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-                return (
-                  <div
-                    key={hour.dayOfWeek}
-                    data-row
-                    data-motion="lift"
-                    className={cn(
-                      'flex min-w-0 flex-col gap-3 rounded-2xl border p-3 transition-colors md:flex-row md:items-center md:gap-4 md:px-4 md:py-3',
-                      hour.isClosed ? 'bg-muted/30 border-dashed' : 'border-border',
-                    )}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="w-10 shrink-0">
-                        <Badge
-                          variant={hour.isClosed ? 'outline' : 'default'}
-                          className="w-full justify-center text-[10px]"
-                        >
-                          {dayAbbr[hour.dayOfWeek]}
-                        </Badge>
-                      </div>
-                      <span className="hidden w-32 shrink-0 text-sm font-medium md:inline">
-                        {dayNames[hour.dayOfWeek]}
-                      </span>
-                      <div className="ml-auto flex items-center gap-2 md:ml-0">
-                        <Switch
-                          checked={!hour.isClosed}
-                          onCheckedChange={(checked) => updateHour(i, 'isClosed', !checked)}
-                        />
-                        <span className="w-14 text-xs text-muted-foreground">
-                          {hour.isClosed ? 'Fechado' : 'Aberto'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {!hour.isClosed ? (
-                      <div className="grid min-w-0 grid-cols-2 items-end gap-2 md:ml-auto md:flex md:w-auto md:items-center">
-                        <div className="min-w-0">
-                          <span className="mb-1 block text-[10px] text-muted-foreground md:hidden">
-                            Abertura
-                          </span>
-                          <Input
-                            type="time"
-                            value={hour.openTime}
-                            onChange={(e) => updateHour(i, 'openTime', e.target.value)}
-                            className="h-9 w-full min-w-0 px-2 text-sm md:w-32 md:flex-none"
-                          />
-                        </div>
-                        <span className="hidden text-xs text-muted-foreground md:inline">até</span>
-                        <div className="min-w-0">
-                          <span className="mb-1 block text-[10px] text-muted-foreground md:hidden">
-                            Fechamento
-                          </span>
-                          <Input
-                            type="time"
-                            value={hour.closeTime}
-                            onChange={(e) => updateHour(i, 'closeTime', e.target.value)}
-                            className="h-9 w-full min-w-0 px-2 text-sm md:w-32 md:flex-none"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-                        <CalendarOff className="size-4 shrink-0" />
-                        <span className="leading-snug">Não aceita agendamentos</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </StaggerIn>
+            <ScheduleHoursEditor hours={editHours} onChange={updateHour} />
 
             <Separator className="my-4" />
 
@@ -505,6 +440,8 @@ export default function SchedulePage() {
           )}
         </StaggerIn>
       )}
+
+      {activeTab === 'professionals' ? <ProfessionalSchedulePanel /> : null}
 
       {/* ─── New Special Day Dialog ─── */}
       <Dialog open={showNewDay} onOpenChange={setShowNewDay}>

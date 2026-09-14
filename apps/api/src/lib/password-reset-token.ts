@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 
 export const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+export const EMAIL_CHANGE_TTL_MS = 30 * 60 * 1000;
 
 export function createPasswordResetToken() {
   const token = randomBytes(32).toString('base64url');

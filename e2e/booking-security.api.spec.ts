@@ -3,6 +3,7 @@ import {
   e2eNote,
   getAllAppointments,
   getAppointmentById,
+  getClientById,
   getClients,
   getEmployees,
   getProducts,
@@ -91,6 +92,9 @@ test.describe('Lacunas de segurança e privacidade', { tag: '@gap' }, () => {
   }) => {
     const result = await getClients(api, userA.token);
     expect(result.status, 'GET /api/auth/clients deveria exigir admin').toBe(403);
+
+    const ownFile = await getClientById(api, userA.token, userA.user.id);
+    expect(ownFile.status, 'GET /api/auth/clients/:id deveria exigir admin').toBe(403);
   });
 
   test('cliente não deve consultar produtos inativos', async ({ api, userA }) => {

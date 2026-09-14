@@ -276,4 +276,178 @@ scheduleRouter.delete('/special-days/:id', authMiddleware, adminMiddleware, (req
   scheduleController.deleteSpecialDay(req, res, next),
 );
 
+/**
+ * @swagger
+ * /api/schedule/employees:
+ *   get:
+ *     summary: Resumo do expediente por profissional (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Lista de profissionais com indicação de horário próprio
+ */
+scheduleRouter.get('/employees', authMiddleware, adminMiddleware, (req, res, next) =>
+  scheduleController.listEmployeeSchedules(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}:
+ *   get:
+ *     summary: Expediente efetivo de um profissional
+ *     description: Sem horário próprio, devolve o expediente do estabelecimento.
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Expediente do profissional
+ */
+scheduleRouter.get('/employees/:employeeId', authMiddleware, (req, res, next) =>
+  scheduleController.getEmployeeSchedule(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}/hours:
+ *   put:
+ *     summary: Personalizar expediente semanal do profissional (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Horário do profissional atualizado
+ */
+scheduleRouter.put(
+  '/employees/:employeeId/hours',
+  authMiddleware,
+  adminMiddleware,
+  (req, res, next) => scheduleController.upsertEmployeeHours(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}/hours:
+ *   delete:
+ *     summary: Voltar ao expediente do estabelecimento (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Horário próprio removido
+ */
+scheduleRouter.delete(
+  '/employees/:employeeId/hours',
+  authMiddleware,
+  adminMiddleware,
+  (req, res, next) => scheduleController.resetEmployeeHours(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}/special-days:
+ *   post:
+ *     summary: Criar folga ou horário especial do profissional (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       201:
+ *         description: Exceção criada
+ */
+scheduleRouter.post(
+  '/employees/:employeeId/special-days',
+  authMiddleware,
+  adminMiddleware,
+  (req, res, next) => scheduleController.createEmployeeSpecialDay(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}/special-days/{id}:
+ *   put:
+ *     summary: Atualizar exceção do profissional (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Exceção atualizada
+ */
+scheduleRouter.put(
+  '/employees/:employeeId/special-days/:id',
+  authMiddleware,
+  adminMiddleware,
+  (req, res, next) => scheduleController.updateEmployeeSpecialDay(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/schedule/employees/{employeeId}/special-days/{id}:
+ *   delete:
+ *     summary: Excluir exceção do profissional (Admin)
+ *     tags: [Schedule]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: employeeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Exceção excluída
+ */
+scheduleRouter.delete(
+  '/employees/:employeeId/special-days/:id',
+  authMiddleware,
+  adminMiddleware,
+  (req, res, next) => scheduleController.deleteEmployeeSpecialDay(req, res, next),
+);
+
 export { scheduleRouter };

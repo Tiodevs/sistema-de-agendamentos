@@ -1,12 +1,13 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Package, LayoutDashboard, CalendarDays, Users, Clock } from 'lucide-react';
+import { Package, LayoutDashboard, CalendarDays, Users, Clock, ContactRound } from 'lucide-react';
 import { AppShell } from '@/components/shell/app-shell';
 
 const sidebarItems = [
   { title: 'Dashboard', href: '/admin', icon: LayoutDashboard, exact: true },
   { title: 'Agendamentos', href: '/admin/appointments', icon: CalendarDays },
+  { title: 'Clientes', href: '/admin/clients', icon: ContactRound },
   { title: 'Horários', href: '/admin/schedule', icon: Clock },
   { title: 'Produtos', href: '/admin/products', icon: Package },
   { title: 'Funcionários', href: '/admin/employees', icon: Users },
@@ -18,6 +19,12 @@ function getBreadcrumb(pathname: string) {
   }
   if (pathname.startsWith('/admin/appointments')) {
     return { parent: 'Painel', current: 'Agendamentos' };
+  }
+  if (pathname.match(/^\/admin\/clients\/[^/]+/)) {
+    return { parent: 'Clientes', current: 'Ficha' };
+  }
+  if (pathname.startsWith('/admin/clients')) {
+    return { parent: 'Painel', current: 'Clientes' };
   }
   if (pathname.startsWith('/admin/schedule')) {
     return { parent: 'Painel', current: 'Horários' };

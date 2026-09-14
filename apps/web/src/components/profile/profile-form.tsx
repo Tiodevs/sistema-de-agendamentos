@@ -11,6 +11,13 @@ import {
   updateMyProfile,
   uploadMyAvatar,
 } from '@/lib/api';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  passwordPolicyMessage,
+} from '@/lib/password-policy';
+import { PasswordInput } from '@/components/auth/password-input';
+import { PasswordMatchHint, PasswordRequirements } from '@/components/auth/password-requirements';
 import { fileToObjectUrl, remoteImageToObjectUrl } from '@/lib/crop-image';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { AvatarCropDialog } from '@/components/profile/avatar-crop-dialog';
@@ -87,7 +94,11 @@ export function ProfileForm() {
         phone: phone.trim(),
       });
       if (response.data?.user) updateUser(response.data.user);
-      toast.success('Perfil atualizado');
+      if (response.data?.user.pendingEmail) {
+        toast.success('Perfil salvo. Confirme o novo e-mail pelo link que enviamos.');
+      } else {
+        toast.success('Perfil atualizado');
+      }
     } catch (error) {
       applyApiErrors(error);
     } finally {
@@ -168,8 +179,10 @@ export function ProfileForm() {
     const next: Record<string, string> = {};
     if (!currentPassword) next.currentPassword = 'Senha atual é obrigatória';
     if (!newPassword) next.newPassword = 'Nova senha é obrigatória';
-    else if (newPassword.length < 8) next.newPassword = 'Senha deve ter no mínimo 8 caracteres';
-    else if (newPassword.length > 128) next.newPassword = 'Senha deve ter no máximo 128 caracteres';
+    else {
+      const policyError = passwordPolicyMessage(newPassword);
+      if (policyError) next.newPassword = policyError;
+    }
     if (newPassword !== confirmPassword) next.confirmPassword = 'As senhas não coincidem';
     if (currentPassword && newPassword && currentPassword === newPassword) {
       next.newPassword = 'A nova senha deve ser diferente da atual';
@@ -327,6 +340,12 @@ export function ProfileForm() {
             autoComplete="email"
           />
           {errors.email ? <p className="text-sm text-destructive">{errors.email}</p> : null}
+          {user.pendingEmail ? (
+            <p className="text-sm text-muted-foreground">
+              Enviamos um link para {user.pendingEmail}. O e-mail da conta só muda depois da
+              confirmação.
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-2">
@@ -376,13 +395,13 @@ export function ProfileForm() {
             aria-hidden="true"
             className="sr-only"
           />
-          <Input
+          <PasswordInput
             id="current-password"
-            type="password"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
             disabled={busy}
             autoComplete="current-password"
+            aria-invalid={Boolean(passwordErrors.currentPassword)}
           />
           {passwordErrors.currentPassword ? (
             <p className="text-sm text-destructive">{passwordErrors.currentPassword}</p>
@@ -391,17 +410,19 @@ export function ProfileForm() {
 
         <div className="space-y-2">
           <Label htmlFor="new-password">Nova senha</Label>
-          <Input
+          <PasswordInput
             id="new-password"
-            type="password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
             disabled={busy}
             autoComplete="new-password"
-            placeholder="Mínimo 8 caracteres"
-            minLength={8}
-            maxLength={128}
+            placeholder="Nova senha"
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
+            aria-describedby="new-password-requirements"
+            aria-invalid={Boolean(passwordErrors.newPassword)}
           />
+          <PasswordRequirements id="new-password-requirements" password={newPassword} />
           {passwordErrors.newPassword ? (
             <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
           ) : null}
@@ -409,17 +430,18 @@ export function ProfileForm() {
 
         <div className="space-y-2">
           <Label htmlFor="confirm-new-password">Confirmar nova senha</Label>
-          <Input
+          <PasswordInput
             id="confirm-new-password"
-            type="password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             disabled={busy}
             autoComplete="new-password"
             placeholder="Repita a nova senha"
-            minLength={8}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
+            aria-invalid={Boolean(passwordErrors.confirmPassword)}
           />
+          <PasswordMatchHint password={newPassword} confirmPassword={confirmPassword} />
           {passwordErrors.confirmPassword ? (
             <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
           ) : null}

@@ -4,217 +4,51 @@ import {
   appointmentProductSelect,
   mapClientAvatar,
 } from '../lib/appointment-map';
+import { DashboardService, DASHBOARD_PERIODS, type DashboardPeriod } from './dashboard.service';
+
+const dashboardService = new DashboardService();
 
 export class ProfessionalService {
-  async getDashboard(employeeId: string) {
-    const now = new Date();
+  async getDashboard(
+    employeeId: string,
+    options: { period?: DashboardPeriod; productId?: string } = {},
+  ) {
+    const period =
+      options.period && DASHBOARD_PERIODS.includes(options.period) ? options.period : 'month';
 
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-
-    // Semana atual (segunda a domingo)
-    const dayOfWeek = now.getDay();
-    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
-    const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
-    weekEnd.setHours(23, 59, 59, 999);
-
-    const [
-      monthAppointments,
-      prevMonthAppointments,
-      monthRevenue,
-      prevMonthRevenue,
-      todayAppointments,
-      weekAppointments,
-      completedMonth,
-      cancelledMonth,
-      statusBreakdown,
-      totalClients,
-      topProducts,
-      employee,
-    ] = await Promise.all([
-      // Agendamentos do mês
-      prisma.appointment.count({
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
+    const [stats, employee, assignedProducts] = await Promise.all([
+      dashboardService.getStats({
+        period,
+        employeeId,
+        productId: options.productId,
       }),
-
-      // Agendamentos mês anterior
-      prisma.appointment.count({
-        where: {
-          employeeId,
-          date: { gte: prevMonthStart, lte: prevMonthEnd },
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-      }),
-
-      // Receita do mês
-      prisma.appointment.aggregate({
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-          status: { in: ['COMPLETED', 'CONFIRMED', 'SCHEDULED', 'IN_PROGRESS'] },
-        },
-        _sum: { price: true },
-      }),
-
-      // Receita mês anterior
-      prisma.appointment.aggregate({
-        where: {
-          employeeId,
-          date: { gte: prevMonthStart, lte: prevMonthEnd },
-          status: { in: ['COMPLETED', 'CONFIRMED', 'SCHEDULED', 'IN_PROGRESS'] },
-        },
-        _sum: { price: true },
-      }),
-
-      // Agendamentos de hoje
-      prisma.appointment.findMany({
-        where: {
-          employeeId,
-          date: { gte: todayStart, lte: todayEnd },
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-        include: {
-          client: { select: { id: true, name: true, phone: true } },
-          product: { select: { id: true, name: true, duration: true } },
-        },
-        orderBy: { date: 'asc' },
-      }),
-
-      // Agendamentos da semana
-      prisma.appointment.count({
-        where: {
-          employeeId,
-          date: { gte: weekStart, lte: weekEnd },
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-      }),
-
-      // Concluídos no mês
-      prisma.appointment.count({
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-          status: 'COMPLETED',
-        },
-      }),
-
-      // Cancelados no mês
-      prisma.appointment.count({
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-          status: { in: ['CANCELLED', 'NO_SHOW'] },
-        },
-      }),
-
-      // Status breakdown do mês
-      prisma.appointment.groupBy({
-        by: ['status'],
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        _count: { id: true },
-      }),
-
-      // Total de clientes únicos atendidos
-      prisma.appointment.findMany({
-        where: {
-          employeeId,
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-        select: { clientId: true },
-        distinct: ['clientId'],
-      }),
-
-      // Top 5 serviços realizados no mês
-      prisma.appointment.groupBy({
-        by: ['productId'],
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-          status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        },
-        _count: { id: true },
-        orderBy: { _count: { id: 'desc' } },
-        take: 5,
-      }),
-
-      // Dados do employee
       prisma.employee.findUnique({
         where: { id: employeeId },
         select: { id: true, name: true, email: true, phone: true },
       }),
+      prisma.employeeProduct.findMany({
+        where: { employeeId, product: { active: true } },
+        select: { product: { select: { id: true, name: true } } },
+      }),
     ]);
 
-    // Buscar nomes dos top produtos
-    const topProductIds = topProducts.map((p) => p.productId);
-    const productNames =
-      topProductIds.length > 0
-        ? await prisma.product.findMany({
-            where: { id: { in: topProductIds } },
-            select: { id: true, name: true },
-          })
-        : [];
-
-    // Variações percentuais
-    const appointmentChange =
-      prevMonthAppointments > 0
-        ? Math.round(((monthAppointments - prevMonthAppointments) / prevMonthAppointments) * 100)
-        : monthAppointments > 0
-          ? 100
-          : 0;
-
-    const currentRevenue = Number(monthRevenue._sum.price || 0);
-    const previousRevenue = Number(prevMonthRevenue._sum.price || 0);
-    const revenueChange =
-      previousRevenue > 0
-        ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
-        : currentRevenue > 0
-          ? 100
-          : 0;
-
-    // Status counts
-    const statusCounts: Record<string, number> = {};
-    for (const s of statusBreakdown) {
-      statusCounts[s.status] = s._count.id;
-    }
+    const products = (
+      assignedProducts.length > 0
+        ? assignedProducts.map((item) => item.product)
+        : stats.filters.products
+    ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
     return {
       employee,
+      ...stats,
+      filters: { products, employees: [] },
       overview: {
-        monthAppointments,
-        appointmentChange,
-        monthRevenue: currentRevenue,
-        revenueChange,
-        weekAppointments,
-        completedMonth,
-        cancelledMonth,
-        totalClients: totalClients.length,
+        ...stats.overview,
+        weekAppointments: stats.overview.monthAppointments,
+        completedMonth: stats.overview.completedAppointments ?? 0,
+        cancelledMonth: stats.overview.cancelledAppointments ?? 0,
+        totalClients: stats.overview.uniqueClients ?? stats.overview.totalClients,
       },
-      todayAppointments: todayAppointments.map((a) => ({
-        id: a.id,
-        date: a.date,
-        endDate: a.endDate,
-        status: a.status,
-        client: a.client,
-        product: a.product,
-      })),
-      statusBreakdown: statusCounts,
-      topProducts: topProducts.map((p) => ({
-        productId: p.productId,
-        name: productNames.find((pn) => pn.id === p.productId)?.name || 'Desconhecido',
-        count: p._count.id,
-      })),
     };
   }
 

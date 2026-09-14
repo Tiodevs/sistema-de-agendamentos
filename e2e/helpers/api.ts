@@ -19,6 +19,7 @@ export type AuthUser = {
   role: string;
   employeeId: string | null;
   avatarUrl: string | null;
+  pendingEmail?: string | null;
   createdAt: string;
 };
 
@@ -125,7 +126,12 @@ export async function ensureClient(
     if (created.status === 201 && created.body.data?.token && created.body.data.user) {
       return created.body.data;
     }
-    return login(api, data.email, data.password);
+    if (created.status === 409) {
+      return login(api, data.email, data.password);
+    }
+    throw new Error(
+      `Não foi possível garantir a conta E2E ${data.email} (cadastro ${created.status}): ${created.body.message || 'sem mensagem'}`,
+    );
   }
 }
 
@@ -191,6 +197,14 @@ export async function getClients(api: APIRequestContext, token: string) {
   return apiJson<{
     clients: Array<{ id: string; name: string; email: string; phone: string | null }>;
   }>(api, 'GET', '/api/auth/clients', { token });
+}
+
+export async function getClientById(api: APIRequestContext, token: string, id: string) {
+  return apiJson<{
+    client: { id: string; name: string; email: string };
+    stats: { total: number };
+    appointments: unknown[];
+  }>(api, 'GET', `/api/auth/clients/${id}`, { token });
 }
 
 export async function createAdminAppointment(

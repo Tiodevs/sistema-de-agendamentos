@@ -1,17 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
-import { getJwtSecret } from '../lib/jwt';
-
-interface JwtPayload {
-  id: string;
-  email: string;
-  role: string;
-  iat?: number;
-}
+import { verifyAccessToken, type AccessTokenClaims } from '../lib/jwt';
 
 export interface AuthenticatedRequest extends Request {
-  user: JwtPayload;
+  user: AccessTokenClaims;
 }
 
 function unauthorized(res: Response) {
@@ -21,10 +13,18 @@ function unauthorized(res: Response) {
   });
 }
 
-export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+function readBearerToken(req: Request) {
   const authHeader = req.headers.authorization;
+  if (!authHeader) return { error: 'missing' as const };
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return { error: 'format' as const };
+  return { token: parts[1] };
+}
 
-  if (!authHeader) {
+export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const bearer = readBearerToken(req);
+
+  if ('error' in bearer && bearer.error === 'missing') {
     res.status(401).json({
       status: 'error',
       message: 'Token não fornecido',
@@ -32,9 +32,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     return;
   }
 
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
+  if ('error' in bearer && bearer.error === 'format') {
     res.status(401).json({
       status: 'error',
       message: 'Formato de token inválido',
@@ -42,11 +40,11 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     return;
   }
 
-  const token = parts[1];
+  const token = 'token' in bearer ? bearer.token : '';
 
-  let decoded: JwtPayload;
+  let decoded: AccessTokenClaims;
   try {
-    decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    decoded = verifyAccessToken(token);
   } catch {
     unauthorized(res);
     return;
@@ -56,10 +54,16 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     try {
       const user = await prisma.user.findUnique({
         where: { id: decoded.id },
-        select: { active: true, passwordChangedAt: true, role: true },
+        select: { active: true, passwordChangedAt: true, role: true, tokenVersion: true },
       });
 
       if (!user?.active) {
+        unauthorized(res);
+        return;
+      }
+
+      const tokenVersion = Number(decoded.tv ?? 0);
+      if (tokenVersion !== Number(user.tokenVersion)) {
         unauthorized(res);
         return;
       }

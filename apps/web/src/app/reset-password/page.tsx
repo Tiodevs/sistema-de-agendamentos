@@ -1,18 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { resetPassword } from '@/lib/api';
+import { readAuthLinkToken, stripAuthLinkTokenFromUrl } from '@/lib/auth-link-token';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  passwordPolicyMessage,
+} from '@/lib/password-policy';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Loader2, KeyRound } from 'lucide-react';
 import { LogoWithText } from '@/components/logo';
 import { AuthScreen } from '@/components/motion/auth-screen';
 import { PasswordInput } from '@/components/auth/password-input';
-
-const TOKEN_STORAGE_KEY = 'leemia-password-reset-token';
+import { PasswordMatchHint, PasswordRequirements } from '@/components/auth/password-requirements';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -22,37 +27,22 @@ export default function ResetPasswordPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const passwordHelpId = useId();
 
   useEffect(() => {
-    const fromUrl = searchParams.get('token')?.trim();
-    if (fromUrl) {
-      try {
-        sessionStorage.setItem(TOKEN_STORAGE_KEY, fromUrl);
-      } catch {
-        // Private mode can block storage.
-      }
-      setToken(fromUrl);
+    const fromUrl = readAuthLinkToken(searchParams.get('token'));
+    const hadTokenInUrl =
+      Boolean(searchParams.get('token')) || window.location.hash.includes('token=');
+
+    setToken((current) => current || fromUrl);
+
+    if (hadTokenInUrl) {
+      stripAuthLinkTokenFromUrl('/reset-password');
       router.replace('/reset-password', { scroll: false });
-      return;
     }
-
-    setToken((current) => {
-      if (current) return current;
-      try {
-        return sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
-      } catch {
-        return '';
-      }
-    });
   }, [router, searchParams]);
-
-  function clearStoredToken() {
-    try {
-      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,6 +54,12 @@ export default function ResetPasswordPage() {
     const formData = new FormData(e.currentTarget);
     const password = String(formData.get('password') ?? '');
     const confirmPassword = String(formData.get('confirmPassword') ?? '');
+    const policyError = passwordPolicyMessage(password);
+
+    if (policyError) {
+      setFieldErrors({ password: policyError });
+      return;
+    }
 
     if (password !== confirmPassword) {
       setFieldErrors({ confirmPassword: 'As senhas não coincidem' });
@@ -74,8 +70,7 @@ export default function ResetPasswordPage() {
 
     try {
       await resetPassword({ token, password });
-      clearStoredToken();
-      logout();
+      await logout({ notifyServer: false });
       router.replace('/login?reset=1');
     } catch (err: unknown) {
       const apiError = err as {
@@ -132,7 +127,7 @@ export default function ResetPasswordPage() {
         <LogoWithText logoSize={40} textClassName="text-2xl font-semibold tracking-tight" />
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Nova senha</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Escolha uma senha com no mínimo 8 caracteres. Depois você entra de novo na conta.
+          Escolha uma senha forte. Depois você entra de novo na conta.
         </p>
       </div>
 
@@ -148,13 +143,18 @@ export default function ResetPasswordPage() {
           <PasswordInput
             id="password"
             name="password"
-            placeholder="Mínimo 8 caracteres"
+            placeholder="Nova senha"
             required
-            minLength={8}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
             disabled={isLoading}
             autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            aria-describedby={passwordHelpId}
+            aria-invalid={Boolean(fieldErrors.password)}
           />
+          <PasswordRequirements id={passwordHelpId} password={password} />
           {fieldErrors.password ? (
             <p className="text-sm text-destructive">{fieldErrors.password}</p>
           ) : null}
@@ -167,11 +167,15 @@ export default function ResetPasswordPage() {
             name="confirmPassword"
             placeholder="Repita a senha"
             required
-            minLength={8}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
             disabled={isLoading}
             autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            aria-invalid={Boolean(fieldErrors.confirmPassword)}
           />
+          <PasswordMatchHint password={password} confirmPassword={confirmPassword} />
           {fieldErrors.confirmPassword ? (
             <p className="text-sm text-destructive">{fieldErrors.confirmPassword}</p>
           ) : null}

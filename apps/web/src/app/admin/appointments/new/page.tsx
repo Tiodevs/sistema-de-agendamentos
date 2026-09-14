@@ -5,10 +5,12 @@ import {
   getProducts,
   getEmployees,
   getClients,
+  getClient,
   getAvailableSlots,
   createAppointment,
   getBusinessHours,
   getSpecialDays,
+  getEmployeeSchedule,
   type Product,
   type Employee,
   type Client,
@@ -89,6 +91,8 @@ export default function NewAppointmentPage() {
   const [notes, setNotes] = useState('');
   const [hours, setHours] = useState<BusinessHour[]>([]);
   const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
+  const [employeeHours, setEmployeeHours] = useState<BusinessHour[] | null>(null);
+  const [employeeSpecialDays, setEmployeeSpecialDays] = useState<SpecialDay[]>([]);
 
   // Load initial data
   useEffect(() => {
@@ -104,6 +108,17 @@ export default function NewAppointmentPage() {
         if (clientRes.data?.clients) setClients(clientRes.data.clients);
         if (hoursRes?.data?.hours) setHours(hoursRes.data.hours);
         if (specialRes?.data?.days) setSpecialDays(specialRes.data.days);
+
+        const preselectedId = new URLSearchParams(window.location.search).get('clientId');
+        if (preselectedId) {
+          const listed = clientRes.data?.clients.find((client) => client.id === preselectedId);
+          if (listed) {
+            setSelectedClient(listed);
+          } else {
+            const detail = await getClient(preselectedId).catch(() => null);
+            if (detail?.data?.client) setSelectedClient(detail.data.client);
+          }
+        }
       } catch {
         toast.error('Erro ao carregar dados');
       } finally {
@@ -132,6 +147,34 @@ export default function NewAppointmentPage() {
     }
     loadEmployees();
   }, [selectedProduct]);
+
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setEmployeeHours(null);
+      setEmployeeSpecialDays([]);
+      return;
+    }
+
+    let cancelled = false;
+    const employeeId = selectedEmployee.id;
+    async function loadEmployeeSchedule() {
+      try {
+        const res = await getEmployeeSchedule(employeeId);
+        if (cancelled || !res.data) return;
+        setEmployeeHours(res.data.usesCustomHours ? res.data.hours : null);
+        setEmployeeSpecialDays(res.data.specialDays);
+      } catch {
+        if (!cancelled) {
+          setEmployeeHours(null);
+          setEmployeeSpecialDays([]);
+        }
+      }
+    }
+    loadEmployeeSchedule();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployee]);
 
   // Load slots when employee + date are selected
   const fetchSlots = useCallback(async (employeeId: string, productId: string, date: string) => {
@@ -162,15 +205,24 @@ export default function NewAppointmentPage() {
   // Set first available date when entering step 3
   useEffect(() => {
     if (step !== 3) return;
-    const fallback = nextOpenDateKey(hours, specialDays, todayDateKey());
+    const fallback = nextOpenDateKey(
+      hours,
+      specialDays,
+      todayDateKey(),
+      employeeHours,
+      employeeSpecialDays,
+    );
     if (!selectedDate) {
       setSelectedDate(fallback);
       return;
     }
-    if (hours.length && isClosedDate(selectedDate, hours, specialDays)) {
+    if (
+      hours.length &&
+      isClosedDate(selectedDate, hours, specialDays, employeeHours, employeeSpecialDays)
+    ) {
       setSelectedDate(fallback);
     }
-  }, [step, selectedDate, hours, specialDays]);
+  }, [step, selectedDate, hours, specialDays, employeeHours, employeeSpecialDays]);
 
   // Client search
   const filteredClients = clients.filter(
@@ -400,7 +452,9 @@ export default function NewAppointmentPage() {
               <BookingDatePicker
                 value={selectedDate}
                 onChange={setSelectedDate}
-                isDateDisabled={(dateKey) => isClosedDate(dateKey, hours, specialDays)}
+                isDateDisabled={(dateKey) =>
+                  isClosedDate(dateKey, hours, specialDays, employeeHours, employeeSpecialDays)
+                }
               />
 
               {/* Time slots */}

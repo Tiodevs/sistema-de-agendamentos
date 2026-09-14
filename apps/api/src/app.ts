@@ -6,8 +6,13 @@ import swaggerUi from 'swagger-ui-express';
 import { router } from './routes';
 import { errorHandler } from './middlewares/errorHandler';
 import { swaggerSpec } from './config/swagger';
+import { configureTrustProxy } from './lib/request-ip';
 
 const app = express();
+const trustProxy = configureTrustProxy();
+if (trustProxy !== false) {
+  app.set('trust proxy', trustProxy);
+}
 
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.APP_URL || 'http://localhost:3000')
   .split(',')

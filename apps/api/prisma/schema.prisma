@@ -19,12 +19,14 @@ model User {
   role              String    @default("USER")
   active            Boolean   @default(true)
   passwordChangedAt DateTime?
+  tokenVersion      Int       @default(0)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   appointments        Appointment[]
   employee            Employee?
   passwordResetTokens PasswordResetToken[]
+  emailChangeTokens   EmailChangeToken[]
 
   @@map("users")
 }
@@ -41,6 +43,21 @@ model PasswordResetToken {
   @@index([userId, usedAt])
   @@index([expiresAt])
   @@map("password_reset_tokens")
+}
+
+model EmailChangeToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newEmail  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("email_change_tokens")
 }
 
 model Product {
@@ -72,8 +89,10 @@ model Employee {
   userId String? @unique
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  products     EmployeeProduct[]
-  appointments Appointment[]
+  products      EmployeeProduct[]
+  appointments  Appointment[]
+  businessHours EmployeeBusinessHour[]
+  specialDays   EmployeeSpecialDay[]
 
   @@map("employees")
 }
@@ -154,6 +173,40 @@ model SpecialDay {
 
   @@unique([date])
   @@map("special_days")
+}
+
+model EmployeeBusinessHour {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int
+  openTime   String
+  closeTime  String
+  isClosed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([employeeId, dayOfWeek])
+  @@index([employeeId])
+  @@map("employee_business_hours")
+}
+
+model EmployeeSpecialDay {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  title       String
+  description String?
+  isClosed    Boolean  @default(true)
+  openTime    String?
+  closeTime   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([employeeId])
+  @@map("employee_special_days")
 }
 
 // Comando migrate

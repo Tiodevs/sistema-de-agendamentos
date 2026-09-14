@@ -6,6 +6,8 @@ import {
 } from '../emails/appointment-scheduled';
 import { getInlineAttachments } from '../emails/assets';
 import { professionalNewAppointmentEmail } from '../emails/professional-new-appointment';
+import { emailChangeConfirmEmail } from '../emails/email-change-confirm';
+import { emailChangeNoticeEmail } from '../emails/email-change-notice';
 import { passwordChangedEmail } from '../emails/password-changed';
 import { passwordResetEmail } from '../emails/password-reset';
 import { welcomeEmail } from '../emails/welcome';
@@ -133,6 +135,42 @@ class EmailService {
     });
   }
 
+  async sendEmailChangeConfirm(input: {
+    id: string;
+    name: string;
+    email: string;
+    confirmUrl: string;
+    tokenId: string;
+  }) {
+    const content = emailChangeConfirmEmail(input.name, input.confirmUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `email-change-confirm/${input.tokenId}`,
+      tags: [{ name: 'type', value: 'email-change-confirm' }],
+    });
+  }
+
+  async sendEmailChangeNotice(input: {
+    id: string;
+    name: string;
+    email: string;
+    newEmail: string;
+    tokenId: string;
+  }) {
+    const content = emailChangeNoticeEmail(input.name, input.newEmail);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `email-change-notice/${input.tokenId}`,
+      tags: [{ name: 'type', value: 'email-change-notice' }],
+    });
+  }
+
   private async send(input: {
     to: string;
     subject: string;
@@ -220,4 +258,24 @@ export function notifyPasswordChanged(user: {
   changedAt: Date;
 }) {
   dispatch('password-changed', () => emailService.sendPasswordChanged(user));
+}
+
+export function notifyEmailChangeConfirm(input: {
+  id: string;
+  name: string;
+  email: string;
+  confirmUrl: string;
+  tokenId: string;
+}) {
+  dispatch('email-change-confirm', () => emailService.sendEmailChangeConfirm(input));
+}
+
+export function notifyEmailChangeNotice(input: {
+  id: string;
+  name: string;
+  email: string;
+  newEmail: string;
+  tokenId: string;
+}) {
+  dispatch('email-change-notice', () => emailService.sendEmailChangeNotice(input));
 }

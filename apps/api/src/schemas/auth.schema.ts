@@ -3,7 +3,9 @@ import { z } from 'zod';
 export const passwordSchema = z
   .string({ error: 'Senha é obrigatória' })
   .min(8, 'Senha deve ter no mínimo 8 caracteres')
-  .max(128, 'Senha deve ter no máximo 128 caracteres');
+  .max(128, 'Senha deve ter no máximo 128 caracteres')
+  .regex(/[A-Z]/, 'Senha deve ter pelo menos uma letra maiúscula')
+  .regex(/[^A-Za-z0-9]/, 'Senha deve ter pelo menos um caractere especial');
 
 export const registerSchema = z.object({
   name: z
@@ -59,11 +61,17 @@ export const forgotPasswordSchema = z.object({
     .trim(),
 });
 
+const secretTokenSchema = z
+  .string({ error: 'Link inválido ou expirado' })
+  .regex(/^[A-Za-z0-9_-]{32,128}$/, 'Link inválido ou expirado');
+
 export const resetPasswordSchema = z.object({
-  token: z
-    .string({ error: 'Link inválido ou expirado' })
-    .regex(/^[A-Za-z0-9_-]{32,128}$/, 'Link inválido ou expirado'),
+  token: secretTokenSchema,
   password: passwordSchema,
+});
+
+export const confirmEmailSchema = z.object({
+  token: secretTokenSchema,
 });
 
 export const changePasswordSchema = z
@@ -79,9 +87,20 @@ export const changePasswordSchema = z
     path: ['newPassword'],
   });
 
+export const listClientsQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  includeInactive: z.enum(['true', 'false']).optional(),
+  active: z.enum(['true', 'false']).optional(),
+  role: z.enum(['USER', 'ADMIN', 'EMPLOYEE']).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type ConfirmEmailInput = z.infer<typeof confirmEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type ListClientsQuery = z.infer<typeof listClientsQuerySchema>;

@@ -21,6 +21,18 @@ const professionalController = new ProfessionalController();
  *     tags: [Professional]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, week, month, last7, last30]
+ *         description: Recorte do dashboard
+ *       - in: query
+ *         name: productId
+ *         schema:
+ *           type: string
+ *         description: Filtrar por serviço
  *     responses:
  *       200:
  *         description: Estatísticas retornadas com sucesso

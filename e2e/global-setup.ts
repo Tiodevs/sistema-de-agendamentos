@@ -1,3 +1,5 @@
+import { ensureReusableE2eUsers, sweepE2eDatabase } from './helpers/db';
+
 const API_URL = process.env.E2E_API_URL || 'http://localhost:3001';
 const WEB_URL = process.env.E2E_WEB_URL || 'http://localhost:3000';
 
@@ -33,4 +35,6 @@ export default async function globalSetup() {
   await assertReachable(`${API_URL}/api/health`, 'API');
   await assertReachable(WEB_URL, 'Web');
   await assertDatabase();
+  await sweepE2eDatabase('leftover');
+  await ensureReusableE2eUsers();
 }

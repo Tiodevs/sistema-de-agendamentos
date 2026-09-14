@@ -212,8 +212,9 @@ export function AppShell({
   }, [pathname]);
 
   function handleLogout() {
-    router.replace('/login');
-    logout();
+    void logout().then(() => {
+      router.replace('/login');
+    });
   }
 
   async function handleShare() {

@@ -15,6 +15,7 @@ import {
   zonedDate,
   zonedParts,
 } from '../lib/datetime';
+import { resolveHoursForDate, type HourLike, type SpecialLike } from '../lib/schedule-hours';
 
 export const DASHBOARD_PERIODS = ['today', 'week', 'month', 'last7', 'last30'] as const;
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
@@ -71,31 +72,30 @@ function calendarDayKey(year: number, month: number, day: number) {
 function availableWorkMinutes(options: {
   start: Date;
   end: Date;
-  employeeCount: number;
-  hoursByDay: Map<
-    number,
-    { dayOfWeek: number; openTime: string; closeTime: string; isClosed: boolean }
-  >;
-  specialByDay: Map<
-    string,
-    { isClosed: boolean; openTime: string | null; closeTime: string | null }
-  >;
+  studioHours: HourLike[];
+  studioSpecials: SpecialLike[];
+  employees: Array<{ hours: HourLike[]; specials: SpecialLike[] }>;
 }) {
-  if (options.employeeCount <= 0) return 0;
+  if (options.employees.length <= 0) return 0;
 
   return enumerateCalendarDays(options.start, options.end).reduce((sum, day) => {
-    const special = options.specialByDay.get(calendarDayKey(day.year, day.month, day.day));
-    const hours = special
-      ? {
-          isClosed: special.isClosed,
-          openTime: special.openTime || '08:00',
-          closeTime: special.closeTime || '18:00',
-        }
-      : options.hoursByDay.get(day.dayOfWeek);
-
-    if (!hours || hours.isClosed) return sum;
-    const duration = Math.max(0, parseMinutes(hours.closeTime) - parseMinutes(hours.openTime));
-    return sum + duration * options.employeeCount;
+    const dateKey = calendarDayKey(day.year, day.month, day.day);
+    return (
+      sum +
+      options.employees.reduce((employeeSum, employee) => {
+        const hours = resolveHoursForDate({
+          dateKey,
+          studioHours: options.studioHours,
+          studioSpecials: options.studioSpecials,
+          employeeHours: employee.hours,
+          employeeSpecials: employee.specials,
+        });
+        if (hours.isClosed) return employeeSum;
+        return (
+          employeeSum + Math.max(0, parseMinutes(hours.closeTime) - parseMinutes(hours.openTime))
+        );
+      }, 0)
+    );
   }, 0);
 }
 
@@ -320,6 +320,8 @@ export class DashboardService {
       filterProducts,
       businessHours,
       specialDays,
+      employeeHours,
+      employeeSpecialDays,
     ] = await Promise.all([
       prisma.product.count(),
       prisma.product.count({ where: { active: true } }),
@@ -403,31 +405,41 @@ export class DashboardService {
           date: { gte: specialDayFrom, lte: specialDayTo },
         },
       }),
+      prisma.employeeBusinessHour.findMany({
+        where: options.employeeId ? { employeeId: options.employeeId } : undefined,
+      }),
+      prisma.employeeSpecialDay.findMany({
+        where: {
+          ...(options.employeeId ? { employeeId: options.employeeId } : {}),
+          date: { gte: specialDayFrom, lte: specialDayTo },
+        },
+      }),
     ]);
 
-    const hoursByDay = new Map(
-      (businessHours.length > 0 ? businessHours : DEFAULT_HOURS).map((hour) => [
-        hour.dayOfWeek,
-        hour,
-      ]),
-    );
-    const specialByDay = new Map(
-      specialDays.map((day) => [
-        calendarDayKey(
-          day.date.getUTCFullYear(),
-          day.date.getUTCMonth() + 1,
-          day.date.getUTCDate(),
-        ),
-        { isClosed: day.isClosed, openTime: day.openTime, closeTime: day.closeTime },
-      ]),
-    );
-    const occupancyEmployees = options.employeeId ? 1 : activeEmployees;
+    const occupancyIds = options.employeeId
+      ? [options.employeeId]
+      : filterEmployees.map((employee) => employee.id);
+    const hoursByEmployee = new Map<string, HourLike[]>();
+    for (const hour of employeeHours) {
+      const current = hoursByEmployee.get(hour.employeeId) ?? [];
+      current.push(hour);
+      hoursByEmployee.set(hour.employeeId, current);
+    }
+    const specialsByEmployee = new Map<string, SpecialLike[]>();
+    for (const day of employeeSpecialDays) {
+      const current = specialsByEmployee.get(day.employeeId) ?? [];
+      current.push(day);
+      specialsByEmployee.set(day.employeeId, current);
+    }
     const availableMinutes = availableWorkMinutes({
       start: range.start,
       end: range.end,
-      employeeCount: occupancyEmployees,
-      hoursByDay,
-      specialByDay,
+      studioHours: businessHours.length > 0 ? businessHours : DEFAULT_HOURS,
+      studioSpecials: specialDays,
+      employees: occupancyIds.map((id) => ({
+        hours: hoursByEmployee.get(id) ?? [],
+        specials: specialsByEmployee.get(id) ?? [],
+      })),
     });
 
     let bookedCount = 0;
@@ -447,6 +459,10 @@ export class DashboardService {
     const employeeStats = new Map<
       string,
       { employeeId: string; name: string; count: number; revenue: number }
+    >();
+    const clientStats = new Map<
+      string,
+      { clientId: string; name: string; count: number; revenue: number }
     >();
 
     const buckets =
@@ -496,6 +512,16 @@ export class DashboardService {
         employee.count += 1;
         employee.revenue += price;
         employeeStats.set(appointment.employeeId, employee);
+
+        const client = clientStats.get(appointment.clientId) ?? {
+          clientId: appointment.clientId,
+          name: appointment.client.name,
+          count: 0,
+          revenue: 0,
+        };
+        client.count += 1;
+        client.revenue += price;
+        clientStats.set(appointment.clientId, client);
       }
 
       const bucket = buckets.find((item, index) => {
@@ -515,6 +541,9 @@ export class DashboardService {
       .sort((a, b) => b.count - a.count || b.revenue - a.revenue)
       .slice(0, 5);
     const topEmployees = [...employeeStats.values()]
+      .sort((a, b) => b.count - a.count || b.revenue - a.revenue)
+      .slice(0, 5);
+    const topClients = [...clientStats.values()]
       .sort((a, b) => b.count - a.count || b.revenue - a.revenue)
       .slice(0, 5);
 
@@ -604,6 +633,7 @@ export class DashboardService {
       })),
       topProducts,
       topEmployees,
+      topClients,
       timeSpent: {
         totalMinutes: completedMinutes + scheduledMinutes,
         completedMinutes,

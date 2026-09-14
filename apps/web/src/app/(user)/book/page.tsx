@@ -8,6 +8,7 @@ import {
   bookAppointment,
   getBusinessHours,
   getSpecialDays,
+  getEmployeeSchedule,
   type Product,
   type Employee,
   type AvailabilitySlot,
@@ -79,6 +80,8 @@ export default function BookPage() {
   const [notes, setNotes] = useState('');
   const [hours, setHours] = useState<BusinessHour[]>([]);
   const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
+  const [employeeHours, setEmployeeHours] = useState<BusinessHour[] | null>(null);
+  const [employeeSpecialDays, setEmployeeSpecialDays] = useState<SpecialDay[]>([]);
 
   useEffect(() => {
     async function loadCatalog() {
@@ -118,6 +121,34 @@ export default function BookPage() {
     loadEmployees();
   }, [selectedProduct]);
 
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setEmployeeHours(null);
+      setEmployeeSpecialDays([]);
+      return;
+    }
+
+    let cancelled = false;
+    const employeeId = selectedEmployee.id;
+    async function loadEmployeeSchedule() {
+      try {
+        const res = await getEmployeeSchedule(employeeId);
+        if (cancelled || !res.data) return;
+        setEmployeeHours(res.data.usesCustomHours ? res.data.hours : null);
+        setEmployeeSpecialDays(res.data.specialDays);
+      } catch {
+        if (!cancelled) {
+          setEmployeeHours(null);
+          setEmployeeSpecialDays([]);
+        }
+      }
+    }
+    loadEmployeeSchedule();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployee]);
+
   const fetchSlots = useCallback(async (employeeId: string, productId: string, date: string) => {
     setSlotsLoading(true);
     setSelectedSlot(null);
@@ -145,15 +176,24 @@ export default function BookPage() {
 
   useEffect(() => {
     if (step !== 3) return;
-    const fallback = nextOpenDateKey(hours, specialDays, todayDateKey());
+    const fallback = nextOpenDateKey(
+      hours,
+      specialDays,
+      todayDateKey(),
+      employeeHours,
+      employeeSpecialDays,
+    );
     if (!selectedDate) {
       setSelectedDate(fallback);
       return;
     }
-    if (hours.length && isClosedDate(selectedDate, hours, specialDays)) {
+    if (
+      hours.length &&
+      isClosedDate(selectedDate, hours, specialDays, employeeHours, employeeSpecialDays)
+    ) {
       setSelectedDate(fallback);
     }
-  }, [step, selectedDate, hours, specialDays]);
+  }, [step, selectedDate, hours, specialDays, employeeHours, employeeSpecialDays]);
 
   function goNext() {
     if (step < 3) setStep((s) => (s + 1) as Step);
@@ -385,7 +425,9 @@ export default function BookPage() {
                 <BookingDatePicker
                   value={selectedDate}
                   onChange={setSelectedDate}
-                  isDateDisabled={(dateKey) => isClosedDate(dateKey, hours, specialDays)}
+                  isDateDisabled={(dateKey) =>
+                    isClosedDate(dateKey, hours, specialDays, employeeHours, employeeSpecialDays)
+                  }
                 />
               </div>
 

@@ -23,6 +23,7 @@
     "db:tunnel": "railway connect Postgres --tunnel-only --port 5433",
     "db:seed": "npm run db:seed --workspace=apps/api",
     "test:e2e": "playwright test --grep-invert @gap",
+    "test:e2e:auth": "playwright test auth.api auth-security.api auth-ui --grep-invert @gap",
     "test:e2e:gaps": "playwright test --grep @gap",
     "test:e2e:all": "playwright test",
     "test:e2e:ui": "playwright test --ui",

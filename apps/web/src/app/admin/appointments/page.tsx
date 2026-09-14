@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, formatShortName } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -250,9 +251,13 @@ export default function AppointmentsPage() {
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                    <p className="min-w-0 truncate font-medium" title={appointment.client.name}>
+                    <Link
+                      href={`/admin/clients/${appointment.client.id}`}
+                      className="min-w-0 truncate font-medium hover:underline"
+                      title={appointment.client.name}
+                    >
                       {formatShortName(appointment.client.name)}
-                    </p>
+                    </Link>
                     <StatusBadge status={appointment.status} />
                   </div>
                   <p

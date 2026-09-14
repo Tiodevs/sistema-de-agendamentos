@@ -15,7 +15,15 @@ import { formatCurrency, formatDuration } from '@/lib/format';
 import { iconForProduct } from '@/lib/admin-accents';
 import { STATUS_CONFIG } from '@/lib/appointment-status';
 import { Button } from '@/components/ui/button';
-import { CalendarOff, Clock, History, Repeat, type LucideIcon } from 'lucide-react';
+import {
+  CalendarOff,
+  CalendarPlus,
+  ChevronRight,
+  Clock,
+  History,
+  Repeat,
+  type LucideIcon,
+} from 'lucide-react';
 import { StaggerIn } from '@/components/motion/stagger-in';
 
 const TIME_ZONE = 'America/Sao_Paulo';
@@ -165,7 +173,7 @@ function InsightCard({
   );
 }
 
-export default function HomePage() {
+export function UserHomePage() {
   const { user } = useAuth();
   const router = useRouter();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -363,52 +371,65 @@ export default function HomePage() {
           ) : null}
         </section>
 
-        <section
+        <button
+          type="button"
           data-motion="enter"
-          className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
+          onClick={() => router.push('/appointments')}
+          className="w-full overflow-hidden rounded-[1.5rem] bg-black p-5 text-left text-white transition-colors hover:bg-zinc-950"
         >
-          <div className="mb-8 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-3xl font-semibold tracking-tight">
-                {nextAppointment ? formatCurrency(nextAppointment.price) : 'Livre'}
-              </p>
-              <p className="mt-1 text-sm text-white/55">
-                {nextAppointment
-                  ? `Próximo horário · ${formatShortDate(nextAppointment.date)}`
-                  : 'Nenhum horário marcado'}
-              </p>
-            </div>
-            <Button
-              onClick={() => router.push('/book')}
-              className="rounded-full bg-white text-black hover:bg-white/90"
-            >
-              Novo
-            </Button>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-white/55">Próximo horário</p>
+            <span className="inline-flex shrink-0 items-center gap-0.5 text-sm font-medium text-white/70">
+              Ver mais
+              <ChevronRight className="size-4" />
+            </span>
           </div>
 
           {nextAppointment && NextIcon ? (
-            <button
-              type="button"
-              onClick={() => router.push('/appointments')}
-              className="flex w-full items-center gap-3 text-left"
-            >
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
-                <NextIcon className="size-4 text-white/80" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{nextAppointment.product.name}</p>
-                <p className="truncate text-xs text-white/45">{nextAppointment.employee.name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold">{formatSlotTime(nextAppointment.date)}</p>
-                <p className="text-[11px] text-white/40">
-                  {STATUS_CONFIG[nextAppointment.status].label}
+            <div className="mt-5 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+              <div>
+                <p className="text-3xl font-semibold tracking-tight">
+                  {formatSlotTime(nextAppointment.date)}
+                </p>
+                <p className="mt-1 text-sm text-white/55">
+                  {formatShortDate(nextAppointment.date)} · {formatCurrency(nextAppointment.price)}
                 </p>
               </div>
-            </button>
+              <div className="flex min-w-0 items-center gap-3 sm:max-w-[55%] sm:justify-end">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
+                  <NextIcon className="size-4 text-white/80" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{nextAppointment.product.name}</p>
+                  <p className="truncate text-xs text-white/45">
+                    {nextAppointment.employee.name} · {STATUS_CONFIG[nextAppointment.status].label}
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
-            <p className="text-sm text-white/50">Escolha um serviço e reserve o próximo horário.</p>
+            <>
+              <p className="mt-5 text-3xl font-semibold tracking-tight">Livre</p>
+              <p className="mt-1 text-sm text-white/55">Nenhum horário marcado</p>
+            </>
           )}
+        </button>
+
+        <section
+          data-motion="enter"
+          className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-[#12352f] via-[#0d1f27] to-[#1a1430] p-5"
+        >
+          <h3 className="text-2xl font-semibold tracking-tight text-white">Agendar agora</h3>
+          <p className="mt-2 max-w-[18rem] text-sm text-white/60">
+            Escolha o serviço e reserve o próximo horário com o profissional que preferir.
+          </p>
+          <Button
+            onClick={() => router.push('/book')}
+            className="mt-6 h-9 rounded-full bg-black px-4 text-sm text-white hover:bg-black/80"
+          >
+            <CalendarPlus className="size-4" />
+            Novo agendamento
+          </Button>
         </section>
       </div>
 
@@ -425,11 +446,6 @@ export default function HomePage() {
           label={idleHasUpcoming ? 'Último atendimento' : 'Sem agendar'}
           value={idleValue}
           hint={idleHint}
-          action={
-            idleHasUpcoming
-              ? undefined
-              : { label: 'Agendar agora', onClick: () => router.push('/book') }
-          }
         />
 
         <InsightCard

@@ -5,6 +5,9 @@ import {
   upsertAllBusinessHoursSchema,
   createSpecialDaySchema,
   updateSpecialDaySchema,
+  upsertAllEmployeeHoursSchema,
+  createEmployeeSpecialDaySchema,
+  updateEmployeeSpecialDaySchema,
 } from '../schemas/schedule.schema';
 import { z } from 'zod';
 
@@ -140,6 +143,134 @@ export class ScheduleController {
       res.status(200).json({
         status: 'success',
         message: 'Dia especial excluído com sucesso',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async listEmployeeSchedules(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const employees = await scheduleService.listEmployeeScheduleSummaries();
+      res.status(200).json({
+        status: 'success',
+        data: { employees },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getEmployeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const schedule = await scheduleService.getEmployeeSchedule(req.params.employeeId as string);
+      res.status(200).json({
+        status: 'success',
+        data: schedule,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async upsertEmployeeHours(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { hours } = upsertAllEmployeeHoursSchema.parse(req.body);
+      const schedule = await scheduleService.upsertEmployeeHours(
+        req.params.employeeId as string,
+        hours,
+      );
+      res.status(200).json({
+        status: 'success',
+        message: 'Horário do profissional atualizado com sucesso',
+        data: schedule,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async resetEmployeeHours(req: Request, res: Response, next: NextFunction) {
+    try {
+      const schedule = await scheduleService.resetEmployeeHours(req.params.employeeId as string);
+      res.status(200).json({
+        status: 'success',
+        message: 'Profissional voltou a usar o horário do estabelecimento',
+        data: schedule,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = createEmployeeSpecialDaySchema.parse(req.body);
+      const day = await scheduleService.createEmployeeSpecialDay(
+        req.params.employeeId as string,
+        data,
+      );
+      res.status(201).json({
+        status: 'success',
+        message: 'Exceção do profissional criada com sucesso',
+        data: { day },
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async updateEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = updateEmployeeSpecialDaySchema.parse(req.body);
+      const day = await scheduleService.updateEmployeeSpecialDay(
+        req.params.employeeId as string,
+        req.params.id as string,
+        data,
+      );
+      res.status(200).json({
+        status: 'success',
+        message: 'Exceção do profissional atualizada com sucesso',
+        data: { day },
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async deleteEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
+    try {
+      await scheduleService.deleteEmployeeSpecialDay(
+        req.params.employeeId as string,
+        req.params.id as string,
+      );
+      res.status(200).json({
+        status: 'success',
+        message: 'Exceção do profissional excluída com sucesso',
       });
     } catch (error) {
       next(error);

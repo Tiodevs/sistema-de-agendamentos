@@ -63,6 +63,15 @@ export function yesterdayKey(from = todayKey()) {
   return addDays(from, -1);
 }
 
+/** Próxima ocorrência do weekday (0=domingo), a partir de amanhã. */
+export function nextWeekdayKey(dayOfWeek: number, from = todayKey()) {
+  for (let offset = 1; offset <= 14; offset += 1) {
+    const key = addDays(from, offset);
+    if (weekdayOf(key) === dayOfWeek) return key;
+  }
+  return addDays(from, 1);
+}
+
 export function saoPauloIso(dateKey: string, timeHHmm: string) {
   return new Date(`${dateKey}T${timeHHmm}:00-03:00`).toISOString();
 }

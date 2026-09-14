@@ -16,6 +16,7 @@ export interface AuthData {
     role: string;
     employeeId: string | null;
     avatarUrl: string | null;
+    pendingEmail?: string | null;
     createdAt: string;
   };
   token: string;
@@ -90,6 +91,12 @@ export async function loginUser(body: {
   });
 }
 
+export async function logoutSession(): Promise<ApiResponse<void>> {
+  return apiRequest('/api/auth/logout', {
+    method: 'POST',
+  });
+}
+
 export async function requestPasswordReset(email: string): Promise<ApiResponse<void>> {
   return apiRequest('/api/auth/forgot-password', {
     method: 'POST',
@@ -104,6 +111,13 @@ export async function resetPassword(body: {
   return apiRequest('/api/auth/reset-password', {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+}
+
+export async function confirmEmailChange(token: string): Promise<ApiResponse<void>> {
+  return apiRequest('/api/auth/confirm-email', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
   });
 }
 
@@ -156,10 +170,60 @@ export interface Client {
   phone: string | null;
   role: string;
   avatarUrl?: string | null;
+  active?: boolean;
+  createdAt?: string;
+  appointmentCount?: number;
+  lastAppointmentAt?: string | null;
 }
 
-export async function getClients(search?: string): Promise<ApiResponse<{ clients: Client[] }>> {
-  const query = search ? `?search=${encodeURIComponent(search)}` : '';
+export interface ClientsPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface ClientFavorite {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export interface ClientStats {
+  total: number;
+  upcoming: number;
+  completed: number;
+  cancelled: number;
+  noShow: number;
+  completedRevenue: number;
+  expectedRevenue: number;
+  lastAppointmentAt: string | null;
+  favoriteProduct: ClientFavorite | null;
+  favoriteEmployee: ClientFavorite | null;
+}
+
+export interface GetClientsOptions {
+  search?: string;
+  includeInactive?: boolean;
+  active?: boolean;
+  role?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function getClients(
+  searchOrOptions?: string | GetClientsOptions,
+): Promise<ApiResponse<{ clients: Client[]; pagination?: ClientsPagination }>> {
+  const options: GetClientsOptions =
+    typeof searchOrOptions === 'string' ? { search: searchOrOptions } : (searchOrOptions ?? {});
+  const params = new URLSearchParams();
+  if (options.search) params.set('search', options.search);
+  if (options.includeInactive) params.set('includeInactive', 'true');
+  if (typeof options.active === 'boolean') params.set('active', String(options.active));
+  if (options.role) params.set('role', options.role);
+  if (options.page) params.set('page', String(options.page));
+  if (options.limit) params.set('limit', String(options.limit));
+  const query = params.toString() ? `?${params.toString()}` : '';
   return apiRequest(`/api/auth/clients${query}`);
 }
 
@@ -385,6 +449,12 @@ export async function getAppointments(filters?: {
   return apiRequest(`/api/appointments${query}`);
 }
 
+export async function getClient(
+  id: string,
+): Promise<ApiResponse<{ client: Client; stats: ClientStats; appointments: Appointment[] }>> {
+  return apiRequest(`/api/auth/clients/${id}`);
+}
+
 export async function getAppointment(
   id: string,
 ): Promise<ApiResponse<{ appointment: Appointment }>> {
@@ -539,6 +609,70 @@ export async function deleteSpecialDay(id: string): Promise<ApiResponse<{ day: S
   });
 }
 
+export interface EmployeeScheduleSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  usesCustomHours: boolean;
+  specialDaysCount: number;
+}
+
+export interface EmployeeSchedule {
+  employee: { id: string; name: string; active: boolean };
+  usesCustomHours: boolean;
+  hours: BusinessHour[];
+  specialDays: SpecialDay[];
+}
+
+export async function getEmployeeScheduleSummaries(): Promise<
+  ApiResponse<{ employees: EmployeeScheduleSummary[] }>
+> {
+  return apiRequest('/api/schedule/employees');
+}
+
+export async function getEmployeeSchedule(
+  employeeId: string,
+): Promise<ApiResponse<EmployeeSchedule>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}`);
+}
+
+export async function updateEmployeeHours(
+  employeeId: string,
+  hours: BusinessHourPayload[],
+): Promise<ApiResponse<EmployeeSchedule>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/hours`, {
+    method: 'PUT',
+    body: JSON.stringify({ hours }),
+  });
+}
+
+export async function resetEmployeeHours(
+  employeeId: string,
+): Promise<ApiResponse<EmployeeSchedule>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/hours`, {
+    method: 'DELETE',
+  });
+}
+
+export async function createEmployeeSpecialDay(
+  employeeId: string,
+  body: SpecialDayPayload,
+): Promise<ApiResponse<{ day: SpecialDay }>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/special-days`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteEmployeeSpecialDay(
+  employeeId: string,
+  id: string,
+): Promise<ApiResponse<{ day: SpecialDay }>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/special-days/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 /* ─── Dashboard ─── */
 
 export type DashboardPeriod = 'today' | 'week' | 'month' | 'last7' | 'last30';
@@ -622,6 +756,7 @@ export interface DashboardData {
   }>;
   topProducts: Array<{ productId: string; name: string; count: number; revenue?: number }>;
   topEmployees: Array<{ employeeId: string; name: string; count: number; revenue?: number }>;
+  topClients?: Array<{ clientId: string; name: string; count: number; revenue?: number }>;
   timeSpent?: {
     totalMinutes: number;
     completedMinutes: number;
@@ -653,32 +788,19 @@ export async function getDashboardStats(params?: {
 
 /* ─── Professional ─── */
 
-export interface ProfessionalDashboardData {
+export interface ProfessionalDashboardData extends DashboardData {
   employee: { id: string; name: string; email: string; phone: string | null } | null;
-  overview: {
-    monthAppointments: number;
-    appointmentChange: number;
-    monthRevenue: number;
-    revenueChange: number;
-    weekAppointments: number;
-    completedMonth: number;
-    cancelledMonth: number;
-    totalClients: number;
-  };
-  todayAppointments: Array<{
-    id: string;
-    date: string;
-    endDate: string;
-    status: AppointmentStatus;
-    client: { id: string; name: string; phone: string | null };
-    product: { id: string; name: string; duration: number };
-  }>;
-  statusBreakdown: Record<string, number>;
-  topProducts: Array<{ productId: string; name: string; count: number }>;
 }
 
-export async function getProfessionalDashboard(): Promise<ApiResponse<ProfessionalDashboardData>> {
-  return apiRequest('/api/professional/dashboard');
+export async function getProfessionalDashboard(params?: {
+  period?: DashboardPeriod;
+  productId?: string;
+}): Promise<ApiResponse<ProfessionalDashboardData>> {
+  const searchParams = new URLSearchParams();
+  if (params?.period) searchParams.set('period', params.period);
+  if (params?.productId) searchParams.set('productId', params.productId);
+  const qs = searchParams.toString();
+  return apiRequest(`/api/professional/dashboard${qs ? `?${qs}` : ''}`);
 }
 
 export async function getProfessionalAppointments(params?: {

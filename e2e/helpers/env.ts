@@ -20,4 +20,9 @@ export const PROFESSIONAL = {
   password: process.env.E2E_PROFESSIONAL_PASSWORD || 'Senha@123',
 };
 
+export const ADMIN = {
+  email: process.env.E2E_ADMIN_EMAIL || 'agedamentos.admin.felipe@gmail.com',
+  password: process.env.E2E_ADMIN_PASSWORD || 'Senha@123',
+};
+
 export const INTRO_STORAGE_KEY = 'leemia-intro-v1';

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { ApiError, getMe, type AuthData } from '@/lib/api';
+import { ApiError, getMe, logoutSession, type AuthData } from '@/lib/api';
 
 type User = AuthData['user'];
 
@@ -16,7 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (user: User, token: string) => void;
-  logout: () => void;
+  logout: (options?: { notifyServer?: boolean }) => Promise<void>;
   updateUser: (user: User) => void;
   refreshUser: () => Promise<void>;
 }
@@ -35,6 +35,7 @@ function toUser(value: User): User {
     role: extra.role,
     employeeId: extra.employeeId ?? extra.employee?.id ?? null,
     avatarUrl: extra.avatarUrl ?? null,
+    pendingEmail: extra.pendingEmail ?? null,
     createdAt: extra.createdAt,
   };
 }
@@ -100,9 +101,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySession],
   );
 
-  const logout = useCallback(() => {
-    applySession(null);
-  }, [applySession]);
+  const logout = useCallback(
+    async (options?: { notifyServer?: boolean }) => {
+      if (options?.notifyServer !== false && cachedSession?.token) {
+        try {
+          await logoutSession();
+        } catch {
+          // The local session is cleared even if the API is unreachable.
+        }
+      }
+      applySession(null);
+    },
+    [applySession],
+  );
 
   const updateUser = useCallback(
     (userData: User) => {
@@ -119,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         applySession({ user: response.data.user, token: cachedSession.token });
       }
     } catch (error) {
-      if (isUnauthorized(error)) logout();
+      if (isUnauthorized(error)) void logout({ notifyServer: false });
     }
   }, [applySession, logout]);
 
@@ -143,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((error) => {
         if (controller.signal.aborted || isAbortError(error)) return;
-        if (isUnauthorized(error)) logout();
+        if (isUnauthorized(error)) void logout({ notifyServer: false });
       });
 
     return () => controller.abort();

@@ -1,7 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 import {
   bookAppointment,
-  cancelAppointment,
   getAvailability,
   getEmployees,
   getProducts,
@@ -111,12 +110,6 @@ export async function bookTracked(
   const id = result.body.data?.appointment?.id;
   if (result.status === 201 && id) tracker.push(id);
   return result;
-}
-
-export async function cancelTracked(api: APIRequestContext, token: string, ids: string[]) {
-  for (const id of ids) {
-    await cancelAppointment(api, token, id);
-  }
 }
 
 export function unavailableSlots(availability: Availability): AvailabilitySlot[] {

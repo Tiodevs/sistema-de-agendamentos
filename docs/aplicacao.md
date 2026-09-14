@@ -17,13 +17,13 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 
 ### Autenticação e contas
 
-- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 6) e telefone opcional. Envia e-mail de boas-vindas (Resend).
-- Login com JWT (`Bearer`), validade configurável (`JWT_EXPIRES_IN`, padrão 7 dias).
-- Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`.
+- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 8, com letra maiúscula e caractere especial) e telefone opcional. Envia e-mail de boas-vindas (Resend). Contas antigas continuam podendo entrar com a senha que já tinham.
+- Login com JWT (`Bearer`, `alg=HS256`), validade configurável (`JWT_EXPIRES_IN`, padrão 12 horas). Payload: `{ id, email, role, tv }`.
+- Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`. `POST /api/auth/logout` incrementa `tokenVersion` e derruba todas as sessões da conta.
 - Redirecionamento pós-login por papel: admin → `/admin`, profissional → `/professional`, cliente → `/`.
-- Logout local (remove token; o JWT não é invalidado no servidor).
-- Contas podem ser desativadas (`active = false`); login recusa conta inativa e o `authMiddleware` consulta `active` de novo a cada request.
-- Senha armazenada com bcrypt (custo 12).
+- Troca de e-mail no perfil exige confirmação pelo link enviado ao endereço novo; o e-mail atual só muda depois disso.
+- Contas podem ser desativadas (`active = false`); login responde a mesma `401` de credencial inválida (com hash dummy) para não enumerar contas.
+- Senha armazenada com bcrypt (custo 12). Login de contas antigas não exige a política nova.
 - Listagem/busca de clientes restrita a admin (`GET /api/auth/clients`).
 
 ### Área do cliente
@@ -52,6 +52,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Agenda geral: filtrar, criar agendamento para qualquer cliente, mudar status, excluir.
 - Configurar expediente por dia da semana (abre/fecha ou fechado).
 - Dias especiais / feriados (fechado ou horário alternativo).
+- Personalizar expediente e folgas por profissional (o padrão é o do estabelecimento; feriado do estúdio continua valendo para todos).
 - Layout com sidebar (desktop) e sheet (mobile).
 
 ### Área do profissional
@@ -70,7 +71,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Reserva fora da grade (passado, fechado, desalinhado, estouro de expediente) é recusada no `create`.
 - Profissional precisa estar vinculado ao produto.
 - Produto e profissional precisam estar ativos.
-- Horário do dia: `business_hours` + override de `special_days` (data civil UTC).
+- Horário do dia: `business_hours` + override de `special_days` (data civil UTC), intersectado com expediente/folga do profissional quando houver.
 - Domingo padrão fechado; sábados 08:00–12:00; seg–sex 08:00–18:00 (seed / default da API).
 - Status: `SCHEDULED`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`.
 
@@ -86,8 +87,8 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 ### O que a aplicação **não** faz hoje
 
 - Pagamento, WhatsApp ou SMS.
-- Refresh token / logout server-side / 2FA.
-- Upload real de avatar (campo existe, sem storage).
+- Refresh token / cookie `httpOnly` / 2FA.
+- Rate limit distribuído (Redis) e CAPTCHA após N falhas de login.
 - Multi-empresa / multi-tenant.
 - Fila, cache Redis ou filas de job.
 - Testes automatizados.
@@ -133,7 +134,7 @@ O proxy público Railway (`*.proxy.rlwy.net`) existe, mas nesta rede costuma fal
 | `ADMIN`    | promoção no banco / seed                              | `/admin/*`                               | middlewares `auth` + `admin`                       |
 | `EMPLOYEE` | admin cria funcionário com e-mail de um user, ou seed | `/professional/*`                        | `auth` + `professional` (exige `employees.userId`) |
 
-JWT payload: `{ id, email, role }`. Segredo: `JWT_SECRET`. **Local e Railway usam segredos diferentes** — o mesmo login/senha vale nos dois (mesmo `users`), mas o token de um ambiente não vale no outro.
+JWT payload: `{ id, email, role, tv }`. Segredo: `JWT_SECRET`. Algoritmo fixo `HS256`. **Local e Railway usam segredos diferentes** — o mesmo login/senha vale nos dois (mesmo `users`), mas o token de um ambiente não vale no outro.
 
 Guards no cliente (layouts):
 
@@ -147,10 +148,12 @@ Guards no cliente (layouts):
 
 ### 4.1 Autenticação
 
-1. `POST /api/auth/register` valida Zod, recusa e-mail duplicado, grava hash bcrypt, devolve user + token.
-2. `POST /api/auth/login` busca por e-mail, checa `active`, `bcrypt.compare`, anexa `employeeId` se houver vínculo.
-3. Cliente: `useAuth` persiste token; `apiRequest` injeta `Authorization`.
-4. `authMiddleware` recusa ausência de header, formato inválido ou JWT inválido/expirado.
+1. `POST /api/auth/register` valida Zod (senha com maiúscula + especial), recusa e-mail duplicado, grava hash bcrypt, devolve user + token.
+2. `POST /api/auth/login` busca por e-mail, compara senha (hash dummy se a conta não existir), trata inativa como credencial inválida, anexa `employeeId` se houver vínculo. Falhas repetidas bloqueiam o e-mail por 15 min (memória do processo).
+3. Cliente: `useAuth` persiste token; `apiRequest` injeta `Authorization`. `Sair` chama `POST /api/auth/logout` e limpa o storage.
+4. `authMiddleware` recusa ausência de header, formato inválido, JWT inválido/expirado, `tv` diferente de `tokenVersion`, ou `iat` anterior a `passwordChangedAt`.
+5. `PATCH /api/auth/profile` atualiza nome/telefone na hora. E-mail novo gera token (hash SHA-256, 30 min) e só entra após `POST /api/auth/confirm-email`.
+6. Reset de senha: o e-mail aponta para `/reset-password#token=...` (fragmento, não query).
 
 Arquivos: `apps/api/src/services/auth.service.ts`, `apps/web/src/hooks/use-auth.tsx`, `apps/web/src/lib/api.ts`.
 
@@ -169,7 +172,7 @@ Produto = serviço vendável (`duration` em minutos, `price` decimal 10,2). Admi
 `GET /api/appointments/availability?employeeId&productId&date=YYYY-MM-DD`:
 
 1. Valida produto ativo, profissional ativo e vínculo.
-2. Resolve horário do dia (`ScheduleService.getHoursForDate`).
+2. Resolve horário do dia (`ScheduleService.getHoursForDate` com o `employeeId`): expediente do estúdio, depois o do profissional, e a interseção dos dois.
 3. Se fechado, `slots: []` e `isClosed: true`.
 4. Gera slots de `openTime` até `closeTime` em passos de 15 min, cada um com duração do serviço.
 5. Marca indisponível se passou ou se o intervalo cruza outro agendamento.
@@ -182,6 +185,8 @@ Cliente reserva com `POST /api/appointments/book` — o `clientId` é **sempre**
 
 `special_days.date` (tipo `Date`, sem hora): feriado fechado ou expediente excepcional.
 
+`employee_business_hours` / `employee_special_days`: se o profissional não tiver linhas, herda o estúdio. Folga própria fecha só aquele profissional. Estúdio fechado fecha todo mundo.
+
 ### 4.6 Dashboards
 
 Agregações Prisma no mês civil do **relógio do servidor** (Railway em `us-east4`). Receita soma `price` de status `SCHEDULED|CONFIRMED|IN_PROGRESS|COMPLETED`. Cancelados/no-show entram no breakdown, não na receita nem na contagem “do mês” principal.
@@ -192,15 +197,17 @@ Agregações Prisma no mês civil do **relógio do servidor** (Railway em `us-ea
 
 Prisma 7: `provider = postgresql` no schema; URL só em `prisma.config.ts` / `DATABASE_URL`. Client via `@prisma/adapter-pg` + `pg` (`apps/api/src/config/database.ts`). Neon foi removido.
 
-| Tabela              | Função                                                                                        |
-| ------------------- | --------------------------------------------------------------------------------------------- |
-| `users`             | login: `email` único, `password`, `role`, `active`                                            |
-| `products`          | serviços                                                                                      |
-| `employees`         | profissionais; `userId` opcional                                                              |
-| `employee_products` | N:N profissional ↔ serviço                                                                    |
-| `appointments`      | reserva; índices `(employeeId, date)`, `clientId`, `date`; exclude de overlap do profissional |
-| `business_hours`    | expediente semanal (`dayOfWeek` único)                                                        |
-| `special_days`      | exceções por data                                                                             |
+| Tabela                    | Função                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `users`                   | login: `email` único, `password`, `role`, `active`                                            |
+| `products`                | serviços                                                                                      |
+| `employees`               | profissionais; `userId` opcional                                                              |
+| `employee_products`       | N:N profissional ↔ serviço                                                                    |
+| `appointments`            | reserva; índices `(employeeId, date)`, `clientId`, `date`; exclude de overlap do profissional |
+| `business_hours`          | expediente semanal do estúdio (`dayOfWeek` único)                                             |
+| `special_days`            | exceções por data do estúdio                                                                  |
+| `employee_business_hours` | expediente semanal opcional por profissional (`employeeId` + `dayOfWeek`)                     |
+| `employee_special_days`   | folga ou horário especial por profissional e data                                             |
 
 Migrations em `apps/api/prisma/migrations/` (inclui `employees.userId`). Deploy: `prisma migrate deploy` no `preDeployCommand` do Railway.
 
@@ -210,27 +217,31 @@ Migrations em `apps/api/prisma/migrations/` (inclui `employees.userId`). Deploy:
 
 Base `/api`. JSON `{ status, message?, data?, errors? }`. Erros de domínio: `statusCode` no `Error`. Zod 400 com `errors[]`. Stack só se `NODE_ENV=development`.
 
-| Método                              | Rota                                    | Quem                                           | Função            |
-| ----------------------------------- | --------------------------------------- | ---------------------------------------------- | ----------------- |
-| GET                                 | `/health`                               | público                                        | liveness          |
-| GET                                 | `/docs`                                 | não-prod / flag                                | Swagger UI        |
-| POST                                | `/auth/register`                        | público + rate                                 | cadastro          |
-| POST                                | `/auth/login`                           | público + rate                                 | login             |
-| GET                                 | `/auth/me`                              | token                                          | perfil            |
-| GET                                 | `/auth/clients`                         | admin                                          | busca clientes    |
-| CRUD + toggle                       | `/products`                             | mutações admin; `includeInactive` só admin     | catálogo          |
-| CRUD + toggle + `PUT /:id/products` | `/employees`                            | mutações admin; listagem USER sem PII          | equipe            |
-| GET                                 | `/appointments/availability`            | token                                          | slots             |
-| GET                                 | `/appointments/my`                      | token                                          | do cliente        |
-| POST                                | `/appointments/book`                    | USER + rate                                    | reserva própria   |
-| PATCH                               | `/appointments/:id/cancel`              | dono, futuro                                   | cancelar próprio  |
-| GET/POST/PATCH/DELETE               | `/appointments`                         | GET e mutações admin; GET `/:id` dono ou admin | gestão            |
-| GET/PUT                             | `/schedule/business-hours`              | PUT admin                                      | expediente        |
-| CRUD                                | `/schedule/special-days`                | mutações admin                                 | feriados          |
-| GET                                 | `/dashboard/stats`                      | admin                                          | métricas          |
-| GET                                 | `/professional/dashboard`               | profissional                                   | métricas próprias |
-| GET                                 | `/professional/appointments`            | profissional                                   | agenda própria    |
-| PATCH                               | `/professional/appointments/:id/status` | profissional                                   | status permitido  |
+| Método                              | Rota                                    | Quem                                           | Função                             |
+| ----------------------------------- | --------------------------------------- | ---------------------------------------------- | ---------------------------------- |
+| GET                                 | `/health`                               | público                                        | liveness                           |
+| GET                                 | `/docs`                                 | não-prod / flag                                | Swagger UI                         |
+| POST                                | `/auth/register`                        | público + rate                                 | cadastro                           |
+| POST                                | `/auth/login`                           | público + rate                                 | login                              |
+| GET                                 | `/auth/me`                              | token                                          | perfil                             |
+| GET                                 | `/auth/clients`                         | admin                                          | busca clientes                     |
+| CRUD + toggle                       | `/products`                             | mutações admin; `includeInactive` só admin     | catálogo                           |
+| CRUD + toggle + `PUT /:id/products` | `/employees`                            | mutações admin; listagem USER sem PII          | equipe                             |
+| GET                                 | `/appointments/availability`            | token                                          | slots                              |
+| GET                                 | `/appointments/my`                      | token                                          | do cliente                         |
+| POST                                | `/appointments/book`                    | USER + rate                                    | reserva própria                    |
+| PATCH                               | `/appointments/:id/cancel`              | dono, futuro                                   | cancelar próprio                   |
+| GET/POST/PATCH/DELETE               | `/appointments`                         | GET e mutações admin; GET `/:id` dono ou admin | gestão                             |
+| GET/PUT                             | `/schedule/business-hours`              | PUT admin                                      | expediente                         |
+| CRUD                                | `/schedule/special-days`                | mutações admin                                 | feriados                           |
+| GET                                 | `/schedule/employees`                   | admin                                          | resumo por profissional            |
+| GET                                 | `/schedule/employees/:employeeId`       | token                                          | expediente efetivo                 |
+| PUT/DELETE                          | `/schedule/employees/:id/hours`         | admin                                          | horário próprio / voltar ao padrão |
+| POST/PUT/DELETE                     | `/schedule/employees/:id/special-days`  | admin                                          | folga do profissional              |
+| GET                                 | `/dashboard/stats`                      | admin                                          | métricas                           |
+| GET                                 | `/professional/dashboard`               | profissional                                   | métricas próprias                  |
+| GET                                 | `/professional/appointments`            | profissional                                   | agenda própria                     |
+| PATCH                               | `/professional/appointments/:id/status` | profissional                                   | status permitido                   |
 
 Swagger: JSDoc em `apps/api/src/routes/*.ts`. O `servers` do spec ainda cita `http://localhost:3001`.
 
@@ -319,7 +330,7 @@ IDs:
 
 Aliases web: `agendamento.mefelipe.com.br`, `sistema-de-agendamento-web.vercel.app`.
 
-Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=7d`, `RAILPACK_NODE_VERSION=20`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, `EMAIL_ASSET_BASE_URL`.
+Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=12h` (se ainda estiver `7d`, vale a variável), `RAILPACK_NODE_VERSION=20`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, `EMAIL_ASSET_BASE_URL`.
 
 Remetente: `Leemia <agendamentos@mefelipe.com.br>` no domínio verificado `mefelipe.com.br` (região Resend `sa-east-1`). Templates HTML em `apps/api/src/emails/`, imagens em `apps/web/public/email/` e `apps/api/emails/static/`. O envio não bloqueia a API: falha de e-mail é só logada. Endereços `*@leemia.dev` (seed) são ignorados para não gerar bounce.
 

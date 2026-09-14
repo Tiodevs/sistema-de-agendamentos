@@ -32,9 +32,30 @@ export async function loginViaUi(page: Page, email: string, password: string) {
   await skipIntro(page);
   await page.goto('/login');
   await page.getByLabel('E-mail').fill(email);
-  await page.getByRole('textbox', { name: 'Senha' }).fill(password);
+  await page.getByLabel('Senha', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 20_000 });
+}
+
+export async function registerViaUi(
+  page: Page,
+  account: { name: string; email: string; password: string; phone?: string },
+) {
+  await skipIntro(page);
+  await page.goto('/register');
+  await page.getByLabel('Nome completo').fill(account.name);
+  await page.getByLabel('E-mail').fill(account.email);
+  if (account.phone) await page.getByLabel(/Telefone/).fill(account.phone);
+  await page.getByLabel('Senha', { exact: true }).fill(account.password);
+  await page.getByLabel('Confirmar senha').fill(account.password);
+  await page.getByRole('button', { name: 'Criar conta' }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith('/register'), { timeout: 20_000 });
+}
+
+export async function logoutViaUi(page: Page) {
+  await page.getByRole('button', { name: 'Menu do usuário' }).click();
+  await page.getByRole('menuitem', { name: 'Sair' }).click();
+  await page.waitForURL('**/login', { timeout: 20_000 });
 }
 
 export async function openBooking(page: Page) {

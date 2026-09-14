@@ -34,18 +34,14 @@ export function RankingList({
         <div className="mt-4 space-y-3">
           {items.map((item) => {
             const selected = selectedId === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelect?.(selected ? '' : item.id)}
-                className={cn(
-                  'w-full rounded-[1.15rem] p-3 text-left transition-colors',
-                  selected
-                    ? 'bg-[var(--admin-hover)]'
-                    : 'bg-[var(--admin-card-muted)] hover:bg-[var(--admin-hover)]',
-                )}
-              >
+            const className = cn(
+              'w-full rounded-[1.15rem] p-3 text-left',
+              selected ? 'bg-[var(--admin-hover)]' : 'bg-[var(--admin-card-muted)]',
+              onSelect && 'transition-colors hover:bg-[var(--admin-hover)]',
+            );
+
+            const body = (
+              <>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="truncate text-sm font-medium">{item.name}</p>
                   <p className="shrink-0 text-sm font-semibold tabular-nums">{item.count}</p>
@@ -61,6 +57,25 @@ export function RankingList({
                     {formatCurrency(item.revenue)}
                   </p>
                 ) : null}
+              </>
+            );
+
+            if (!onSelect) {
+              return (
+                <div key={item.id} className={className}>
+                  {body}
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(selected ? '' : item.id)}
+                className={className}
+              >
+                {body}
               </button>
             );
           })}

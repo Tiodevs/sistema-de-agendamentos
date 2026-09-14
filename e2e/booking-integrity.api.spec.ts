@@ -103,7 +103,6 @@ test.describe('Integridade da reserva na API', () => {
 
     const cancelled = await cancelAppointment(api, userA.token, appointmentId);
     expect(cancelled.status).toBe(200);
-    userA.createdIds = userA.createdIds.filter((id) => id !== appointmentId);
 
     const availability = await getAvailability(
       api,

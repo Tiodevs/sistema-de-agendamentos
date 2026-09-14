@@ -1,10 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { homePathForUser, useAuth } from '@/hooks/use-auth';
 import { registerUser } from '@/lib/api';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  passwordPolicyMessage,
+} from '@/lib/password-policy';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +17,7 @@ import { Loader2, UserPlus } from 'lucide-react';
 import { LogoWithText } from '@/components/logo';
 import { AuthScreen } from '@/components/motion/auth-screen';
 import { PasswordInput } from '@/components/auth/password-input';
+import { PasswordMatchHint, PasswordRequirements } from '@/components/auth/password-requirements';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,6 +25,9 @@ export default function RegisterPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const passwordHelpId = useId();
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;
@@ -40,6 +49,13 @@ export default function RegisterPage() {
 
     if (password !== confirmPassword) {
       setFieldErrors({ confirmPassword: 'As senhas não coincidem' });
+      setIsLoading(false);
+      return;
+    }
+
+    const policyError = passwordPolicyMessage(password);
+    if (policyError) {
+      setFieldErrors({ password: policyError });
       setIsLoading(false);
       return;
     }
@@ -135,13 +151,18 @@ export default function RegisterPage() {
           <PasswordInput
             id="password"
             name="password"
-            placeholder="Mínimo 8 caracteres"
+            placeholder="Crie uma senha"
             required
-            minLength={8}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
             disabled={isLoading}
             autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            aria-describedby={passwordHelpId}
+            aria-invalid={Boolean(fieldErrors.password)}
           />
+          <PasswordRequirements id={passwordHelpId} password={password} />
           {fieldErrors.password ? (
             <p className="text-sm text-destructive">{fieldErrors.password}</p>
           ) : null}
@@ -154,11 +175,15 @@ export default function RegisterPage() {
             name="confirmPassword"
             placeholder="Repita a senha"
             required
-            minLength={8}
-            maxLength={128}
+            minLength={PASSWORD_MIN_LENGTH}
+            maxLength={PASSWORD_MAX_LENGTH}
             disabled={isLoading}
             autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            aria-invalid={Boolean(fieldErrors.confirmPassword)}
           />
+          <PasswordMatchHint password={password} confirmPassword={confirmPassword} />
           {fieldErrors.confirmPassword ? (
             <p className="text-sm text-destructive">{fieldErrors.confirmPassword}</p>
           ) : null}

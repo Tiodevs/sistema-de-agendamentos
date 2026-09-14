@@ -152,6 +152,28 @@ html:not(.dark) .admin-surface {
   display: none;
 }
 
+@keyframes password-rule-pop {
+  0% {
+    transform: scale(0.72);
+  }
+  62% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.password-rule-check[data-met='true'] {
+  animation: password-rule-pop 0.38s cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .password-rule-check[data-met='true'] {
+    animation: none;
+  }
+}
+
 .admin-bar-striped {
   background-image: repeating-linear-gradient(
     -45deg,

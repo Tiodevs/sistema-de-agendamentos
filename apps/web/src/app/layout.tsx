@@ -9,12 +9,15 @@ import { introBootstrapScript } from '@/lib/intro-script';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://agendamento.mefelipe.com.br'),
   title: 'Leemia',
-  description: 'Agendamentos online Leemia',
+  description:
+    'Agenda online do estúdio Leemia. Marque serviços, escolha o profissional e confirme o horário.',
   openGraph: {
     title: 'Leemia',
-    description: 'Agendamentos online Leemia',
-    images: ['/leemia-logo.png'],
+    description:
+      'Agenda online do estúdio Leemia. Marque serviços, escolha o profissional e confirme o horário.',
+    images: ['/marketing/leemia-light-waves.png'],
   },
 };
 

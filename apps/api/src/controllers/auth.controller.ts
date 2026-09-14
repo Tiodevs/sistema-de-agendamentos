@@ -6,9 +6,12 @@ import {
   updateProfileSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  confirmEmailSchema,
   changePasswordSchema,
+  listClientsQuerySchema,
 } from '../schemas/auth.schema';
 import { z } from 'zod';
+import { clientIp } from '../lib/request-ip';
 
 const authService = new AuthService();
 
@@ -46,7 +49,7 @@ export class AuthController {
   async login(req: Request, res: Response, next: NextFunction) {
     try {
       const data = loginSchema.parse(req.body);
-      const result = await authService.login(data);
+      const result = await authService.login(data, clientIp(req));
 
       res.status(200).json({
         status: 'success',
@@ -62,6 +65,20 @@ export class AuthController {
         });
         return;
       }
+      next(error);
+    }
+  }
+
+  async logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as Request & { user: { id: string } }).user.id;
+      await authService.logout(userId);
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Sessão encerrada',
+      });
+    } catch (error) {
       next(error);
     }
   }
@@ -163,12 +180,33 @@ export class AuthController {
 
   async getClients(req: Request, res: Response, next: NextFunction) {
     try {
-      const search = req.query.search as string | undefined;
-      const clients = await authService.getClients(search);
+      const query = listClientsQuerySchema.parse(req.query);
+      const result = await authService.getClients(query);
 
       res.status(200).json({
         status: 'success',
-        data: { clients },
+        data: result,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async getClientById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await authService.getClientById(req.params.id as string);
+
+      res.status(200).json({
+        status: 'success',
+        data: result,
       });
     } catch (error) {
       next(error);
@@ -205,6 +243,28 @@ export class AuthController {
       res.status(200).json({
         status: 'success',
         message: 'Senha redefinida com sucesso. Entre com a nova senha.',
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Dados inválidos',
+          errors: formatZodErrors(error),
+        });
+        return;
+      }
+      next(error);
+    }
+  }
+
+  async confirmEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = confirmEmailSchema.parse(req.body);
+      await authService.confirmEmailChange(data.token);
+
+      res.status(200).json({
+        status: 'success',
+        message: 'E-mail confirmado com sucesso. Entre de novo se a sessão não atualizar.',
       });
     } catch (error) {
       if (error instanceof z.ZodError) {

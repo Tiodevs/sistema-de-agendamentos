@@ -216,7 +216,7 @@ export class AppointmentService {
       throw httpError('Este funcionário não atende este produto', 400);
     }
 
-    const schedule = await scheduleService.getHoursForDate(dateStr);
+    const schedule = await scheduleService.getHoursForDate(dateStr, employeeId);
 
     if (schedule.isClosed) {
       return {
@@ -274,9 +274,9 @@ export class AppointmentService {
     }
 
     const dateStr = dateKeyFromInstant(startDate);
-    const schedule = await scheduleService.getHoursForDate(dateStr);
+    const schedule = await scheduleService.getHoursForDate(dateStr, employeeId);
     if (schedule.isClosed) {
-      throw httpError('Estúdio fechado neste dia', 400);
+      throw httpError('Não há atendimento neste dia', 400);
     }
 
     const { dayStart, dayEnd } = dayBounds(dateStr, schedule.openTime, schedule.closeTime);

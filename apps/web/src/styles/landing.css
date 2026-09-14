@@ -1,0 +1,187 @@
+/* Institutional page. Always dark, independent of the app theme toggle. */
+
+.landing-shell {
+  position: relative;
+  min-height: 100dvh;
+  overflow-x: clip;
+  background:
+    radial-gradient(1100px 620px at 50% -12%, oklch(0.58 0.1 205 / 0.16), transparent 62%),
+    radial-gradient(760px 520px at 88% 12%, oklch(0.5 0.14 300 / 0.1), transparent 60%),
+    linear-gradient(180deg, #080a0e 0%, #06080b 45%, #05070a 100%);
+}
+
+.landing-glow {
+  position: absolute;
+  inset-inline: 0;
+  top: -6rem;
+  height: 44rem;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  mask-image: radial-gradient(68% 58% at 50% 34%, black, transparent 76%);
+  -webkit-mask-image: radial-gradient(68% 58% at 50% 34%, black, transparent 76%);
+}
+
+.landing-header-bar {
+  background: oklch(0.16 0.006 250 / 0.72);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.06),
+    0 18px 40px oklch(0 0 0 / 0.32);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  transition:
+    height 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.35s ease;
+}
+
+.landing-header-bar[data-scrolled='true'] {
+  background: oklch(0.13 0.006 250 / 0.9);
+}
+
+.landing-progress {
+  position: absolute;
+  inset-inline: 1.25rem;
+  bottom: 0;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: left center;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--admin-accent));
+}
+
+.landing-nav-link[data-active='true'] {
+  background: oklch(1 0 0 / 0.07);
+  color: var(--foreground);
+}
+
+.landing-mock-window {
+  overflow: hidden;
+  border-radius: 1.75rem;
+  background: var(--admin-panel);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.05),
+    0 30px 70px oklch(0 0 0 / 0.45);
+}
+
+.landing-photo {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.75rem;
+  background: #0a0d11;
+}
+
+.landing-photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.06);
+}
+
+.landing-parallax {
+  will-change: transform;
+}
+
+.landing-rail-badge {
+  background: var(--admin-card-muted);
+  color: var(--muted-foreground);
+  transition:
+    background-color 0.35s ease,
+    color 0.35s ease;
+}
+
+.landing-rail-step[data-state='current'] .landing-rail-badge,
+.landing-rail-step[data-state='done'] .landing-rail-badge {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.landing-rail-check {
+  display: none;
+}
+
+.landing-rail-step[data-state='done'] .landing-rail-number {
+  display: none;
+}
+
+.landing-rail-step[data-state='done'] .landing-rail-check {
+  display: block;
+}
+
+.landing-rail-label {
+  color: var(--muted-foreground);
+  transition: color 0.35s ease;
+}
+
+.landing-rail-step[data-state='current'] .landing-rail-label {
+  color: var(--foreground);
+}
+
+.landing-rail-line {
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.landing-rail-step[data-state='done'] .landing-rail-line {
+  transform: scaleX(1);
+}
+
+.landing-step {
+  border: 1px solid transparent;
+  opacity: 0.82;
+  transition:
+    opacity 0.45s ease,
+    border-color 0.45s ease,
+    background-color 0.45s ease;
+}
+
+.landing-step.is-active {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--admin-accent) 42%, transparent);
+  background: color-mix(in oklch, var(--admin-accent) 6%, var(--admin-card));
+}
+
+.landing-faq summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.landing-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-faq[open] .landing-faq-icon {
+  transform: rotate(45deg);
+}
+
+.landing-faq[open] .landing-faq-answer {
+  animation: landing-faq-open 0.35s ease both;
+}
+
+@keyframes landing-faq-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.landing-word-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-parallax {
+    will-change: auto;
+  }
+
+  .landing-faq[open] .landing-faq-answer {
+    animation: none;
+  }
+}

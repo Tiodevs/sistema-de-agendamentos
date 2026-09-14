@@ -31,7 +31,7 @@ const authController = new AuthController();
  *         password:
  *           type: string
  *           minLength: 8
- *           example: "123456"
+ *           example: "Senha@123"
  *         phone:
  *           type: string
  *           example: "(11) 99999-9999"
@@ -47,7 +47,7 @@ const authController = new AuthController();
  *           example: "joao@email.com"
  *         password:
  *           type: string
- *           example: "123456"
+ *           example: "Senha@123"
  *     AuthResponse:
  *       type: object
  *       properties:
@@ -134,7 +134,7 @@ const authController = new AuthController();
  *       409:
  *         description: E-mail já em uso
  */
-authRouter.post('/register', rateLimitByIp('register', 20, 60 * 60 * 1000), (req, res, next) =>
+authRouter.post('/register', rateLimitByIp('register', 40, 60 * 60 * 1000), (req, res, next) =>
   authController.register(req, res, next),
 );
 
@@ -143,7 +143,7 @@ authRouter.post('/register', rateLimitByIp('register', 20, 60 * 60 * 1000), (req
  * /api/auth/login:
  *   post:
  *     summary: Login na conta
- *     description: Autentica o usuário e retorna um token JWT.
+ *     description: Autentica o usuário e retorna um token JWT (HS256). Sessões anteriores continuam válidas até expirar, logout ou troca de senha.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -163,6 +163,25 @@ authRouter.post('/register', rateLimitByIp('register', 20, 60 * 60 * 1000), (req
  */
 authRouter.post('/login', rateLimitByIp('login', 80, 15 * 60 * 1000), (req, res, next) =>
   authController.login(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: Encerrar sessão no servidor
+ *     description: Incrementa a versão da sessão do usuário. O JWT atual e os demais deixam de valer.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Sessão encerrada
+ *       401:
+ *         description: Não autenticado
+ */
+authRouter.post('/logout', authMiddleware, (req, res, next) =>
+  authController.logout(req, res, next),
 );
 
 /**
@@ -232,6 +251,37 @@ authRouter.post(
 
 /**
  * @swagger
+ * /api/auth/confirm-email:
+ *   post:
+ *     summary: Confirmar o novo e-mail do perfil
+ *     description: Consome o token enviado ao endereço novo. Sem o link, o e-mail da conta não muda.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: E-mail confirmado
+ *       400:
+ *         description: Token inválido
+ *       409:
+ *         description: E-mail já em uso
+ */
+authRouter.post(
+  '/confirm-email',
+  rateLimitByIp('confirm-email', 20, 60 * 60 * 1000),
+  (req, res, next) => authController.confirmEmail(req, res, next),
+);
+
+/**
+ * @swagger
  * /api/auth/me:
  *   get:
  *     summary: Perfil do usuário autenticado
@@ -252,7 +302,7 @@ authRouter.get('/me', authMiddleware, (req, res, next) => authController.me(req,
  * /api/auth/profile:
  *   patch:
  *     summary: Atualizar perfil
- *     description: Atualiza nome, e-mail e telefone do usuário autenticado.
+ *     description: Atualiza nome e telefone na hora. E-mail novo só entra depois da confirmação pelo link enviado ao endereço novo.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -366,7 +416,7 @@ authRouter.delete('/profile/avatar', authMiddleware, (req, res, next) =>
  * /api/auth/clients:
  *   get:
  *     summary: Listar clientes (Admin)
- *     description: Retorna lista de usuários ativos para seleção em agendamentos.
+ *     description: Retorna usuários para a agenda e para a ficha de clientes. Sem filtros, só ativos (até 50).
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -375,13 +425,64 @@ authRouter.delete('/profile/avatar', authMiddleware, (req, res, next) =>
  *         name: search
  *         schema:
  *           type: string
- *         description: Filtrar por nome ou e-mail
+ *         description: Filtrar por nome, e-mail ou telefone
+ *       - in: query
+ *         name: includeInactive
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *       - in: query
+ *         name: active
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [USER, ADMIN, EMPLOYEE]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *     responses:
  *       200:
  *         description: Lista de clientes
  */
 authRouter.get('/clients', authMiddleware, adminMiddleware, (req, res, next) =>
   authController.getClients(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/clients/{id}:
+ *   get:
+ *     summary: Ficha do cliente (Admin)
+ *     description: Perfil, estatísticas e histórico de agendamentos de um usuário.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Ficha do cliente
+ *       404:
+ *         description: Cliente não encontrado
+ */
+authRouter.get('/clients/:id', authMiddleware, adminMiddleware, (req, res, next) =>
+  authController.getClientById(req, res, next),
 );
 
 export { authRouter };
