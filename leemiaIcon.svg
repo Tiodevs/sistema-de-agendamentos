@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <g transform="translate(4 14)">
+    <rect x="4" y="4" width="112" height="92" rx="4" fill="#05070A" />
+    <clipPath id="leemia-icon-clip">
+      <rect x="4" y="4" width="112" height="92" rx="4" />
+    </clipPath>
+    <g
+      clip-path="url(#leemia-icon-clip)"
+      stroke="#34C3DD"
+      stroke-width="7"
+      stroke-linecap="round"
+    >
+      <path d="M 4 38 C 22 25, 41 29, 58 44 C 75 59, 98 55, 116 38" />
+      <path d="M 4 66 C 23 53, 44 57, 62 71 C 78 83, 99 81, 116 64" />
+      <path d="M 40 4 C 52 22, 54 40, 44 56 C 34 72, 34 84, 42 96" />
+      <path d="M 78 4 C 90 22, 88 40, 76 55 C 64 70, 67 84, 76 96" />
+    </g>
+    <rect
+      x="4"
+      y="4"
+      width="112"
+      height="92"
+      rx="4"
+      stroke="#34C3DD"
+      stroke-width="7"
+      stroke-linecap="round"
+    />
+  </g>
+</svg>
