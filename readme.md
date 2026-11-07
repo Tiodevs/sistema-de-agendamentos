@@ -38,6 +38,23 @@ npm run dev
 
 Sem o túnel, a API local não alcança o banco (`ECONNREFUSED` em `127.0.0.1:5433`).
 
+## Docker (ambiente isolado, sem o banco de produção)
+
+Web, API e um Postgres próprio em containers. Não usa o `apps/api/.env` nem o banco do Railway: o seed mexe só no banco do container.
+
+```bash
+cp .env.example .env          # na raiz: preencher POSTGRES_PASSWORD e JWT_SECRET
+docker compose up -d --build --wait
+docker compose run --rm seed  # opcional: dados fictícios
+```
+
+- Frontend: http://localhost:3000 · API: http://localhost:3001 · Swagger: http://localhost:3001/api/docs
+- Postgres do container: `127.0.0.1:5434`
+- As migrations rodam no serviço `migrate` antes de a API subir.
+- O seed só promove contas que já existem: antes dele, crie pelo cadastro (http://localhost:3000/register) a conta de `ADMIN_EMAIL` e uma de `CLIENT_EMAIL_CANDIDATES` (`apps/api/prisma/seed.ts`).
+- `docker compose down` para tudo; `docker compose down -v` apaga também o banco.
+- E-mail (Resend) e upload de foto (S3) ficam desligados até as chaves serem preenchidas no `.env`.
+
 ## Comandos
 
 ```bash
