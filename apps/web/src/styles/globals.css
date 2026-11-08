@@ -128,6 +128,8 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Véu da abertura (só em "/" para visitante; ver lib/intro-script.ts). Some sozinho logo depois
+     de INTRO_LATE_START_MS (2,5 s): se o JavaScript não carregar, a tela não fica preta. */
   html[data-leemia-intro='1'] body::before {
     content: '';
     position: fixed;
@@ -135,9 +137,17 @@
     z-index: 199;
     background: #05070a;
     pointer-events: none;
+    animation: leemia-intro-veil-failsafe 0.3s ease-out 2.6s forwards;
   }
 
   [data-motion='lift'] {
     transform: translateZ(0);
+  }
+}
+
+@keyframes leemia-intro-veil-failsafe {
+  to {
+    opacity: 0;
+    visibility: hidden;
   }
 }

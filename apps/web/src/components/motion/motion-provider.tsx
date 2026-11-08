@@ -6,19 +6,23 @@ import {
   useContext,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import dynamic from 'next/dynamic';
 import { gsap, useGSAP } from '@/lib/gsap';
-import { INTRO_STORAGE_KEY, INTRO_DURATION_MS, clearIntroPlaceholder } from '@/lib/intro-script';
+import {
+  INTRO_DURATION_MS,
+  clearIntroPlaceholder,
+  markIntroSeen,
+  shouldPlayIntroNow,
+} from '@/lib/intro-script';
 
 const LeemiaIntro = dynamic(
   () => import('@/components/motion/leemia-intro').then((mod) => mod.LeemiaIntro),
   { ssr: false },
 );
-
-const INTRO_KEY = INTRO_STORAGE_KEY;
 
 type MotionContextValue = {
   introComplete: boolean;
@@ -30,55 +34,38 @@ export function useMotion() {
   return useContext(MotionContext);
 }
 
-function prefersReducedMotion() {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-function shouldForceIntro() {
-  return new URLSearchParams(window.location.search).get('intro') === '1';
-}
-
-function hasSeenIntro() {
-  try {
-    return sessionStorage.getItem(INTRO_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function markIntroSeen() {
-  try {
-    sessionStorage.setItem(INTRO_KEY, '1');
-  } catch {
-    // Private mode can block sessionStorage.
-  }
-}
-
 export function MotionProvider({ children }: { children: ReactNode }) {
   const [introComplete, setIntroComplete] = useState(false);
   const [playIntro, setPlayIntro] = useState(false);
+  // Decidida uma vez por carregamento da página (o StrictMode do dev roda o efeito duas vezes).
+  // O provider fica no layout raiz: navegar dentro do app nunca dispara a abertura.
+  const introDecisionRef = useRef<boolean | null>(null);
 
   useLayoutEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-
-    if (shouldForceIntro() || (!prefersReducedMotion() && !hasSeenIntro())) {
-      document.body.style.overflow = 'hidden';
-      setPlayIntro(true);
-      return () => {
-        document.body.style.overflow = previousOverflow;
-        clearIntroPlaceholder();
-      };
+    if (introDecisionRef.current === null) {
+      introDecisionRef.current = shouldPlayIntroNow();
+      // Marca já no começo: fechar a aba no meio não faz a abertura voltar.
+      if (introDecisionRef.current) markIntroSeen();
     }
 
-    clearIntroPlaceholder();
-    setIntroComplete(true);
-    return undefined;
+    if (!introDecisionRef.current) {
+      clearIntroPlaceholder();
+      setIntroComplete(true);
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    setPlayIntro(true);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      clearIntroPlaceholder();
+    };
   }, []);
 
   useLayoutEffect(() => {
     if (!playIntro) return undefined;
     const timeout = window.setTimeout(() => {
-      markIntroSeen();
       clearIntroPlaceholder();
       document.body.style.overflow = '';
       setIntroComplete(true);
@@ -124,7 +111,6 @@ export function MotionProvider({ children }: { children: ReactNode }) {
         <Suspense fallback={null}>
           <LeemiaIntro
             onReveal={() => {
-              markIntroSeen();
               clearIntroPlaceholder();
               document.body.style.overflow = '';
               setIntroComplete(true);

@@ -47,8 +47,12 @@ export function ProfileForm() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
 
+  // Preenche o formulário só quando a conta muda. Trocar ou remover a foto também atualiza o
+  // `user`, e isso não pode apagar nome e telefone que ainda não foram salvos (UX-13).
+  const syncedUserIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user || syncedUserIdRef.current === user.id) return;
+    syncedUserIdRef.current = user.id;
     setName(user.name);
     setEmail(user.email);
     setPhone(user.phone ?? '');
@@ -93,7 +97,14 @@ export function ProfileForm() {
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
       });
-      if (response.data?.user) updateUser(response.data.user);
+      const saved = response.data?.user;
+      if (saved) {
+        updateUser(saved);
+        // Mostra o que ficou salvo (com e-mail novo pendente, o campo volta ao e-mail atual).
+        setName(saved.name);
+        setEmail(saved.email);
+        setPhone(saved.phone ?? '');
+      }
       if (response.data?.user.pendingEmail) {
         toast.success('Perfil salvo. Confirme o novo e-mail pelo link que enviamos.');
       } else {

@@ -30,6 +30,24 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: Emplo
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const isEditing = !!employee;
+  const access = employee?.access;
+  const emailChanged =
+    isEditing && email.trim().toLowerCase() !== (employee?.email ?? '').trim().toLowerCase();
+
+  /** SEC-03: o que o e-mail significa para o acesso ao painel. */
+  let emailHint: string;
+  if (!isEditing) {
+    emailHint =
+      'Enviamos um convite para este e-mail. A conta só ganha acesso ao painel quando a pessoa aceitar; se ela já tiver conta com este e-mail, entra com a própria senha.';
+  } else if (access?.status === 'linked') {
+    emailHint = `O acesso ao painel é da conta ${access.email ?? 'ligada'}. Mudar o e-mail aqui não muda o login dela.`;
+  } else if (access?.status === 'pending') {
+    emailHint = emailChanged
+      ? 'Ao salvar, o convite atual deixa de valer e um novo vai para o e-mail novo.'
+      : 'Há um convite em aberto para este e-mail.';
+  } else {
+    emailHint = 'Para dar acesso ao painel, use "Enviar convite" no menu do profissional.';
+  }
 
   useEffect(() => {
     if (employee) {
@@ -84,7 +102,7 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: Emplo
           <DialogDescription>
             {isEditing
               ? 'Altere as informações do funcionário abaixo.'
-              : 'Preencha os dados para cadastrar um novo funcionário.'}
+              : 'Preencha os dados do profissional. Nenhuma conta é ligada ao painel até a pessoa aceitar o convite.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -110,8 +128,12 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: Emplo
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
+              aria-describedby="employee-email-hint"
             />
             {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+            <p id="employee-email-hint" className="text-xs text-muted-foreground">
+              {emailHint}
+            </p>
           </div>
 
           <div className="space-y-2">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ApiError,
   getProducts,
@@ -42,28 +42,26 @@ import { StaggerIn } from '@/components/motion/stagger-in';
 import { EmailVerificationNotice } from '@/components/user/email-verification-notice';
 import { useAuth } from '@/hooks/use-auth';
 import { lastBookableDateKey } from '@/lib/booking-rules';
+import {
+  NOTES_MAX_LENGTH,
+  employeesForProduct,
+  formatDateKey,
+  formatSlotDate,
+  formatSlotTime,
+  offersProduct,
+  slotDateKey,
+  slotsForDate,
+} from '@/lib/booking-wizard';
 import { isClosedDate, nextOpenDateKey, todayDateKey } from '@/lib/datetime';
 
 type Step = 1 | 2 | 3;
+type LoadStatus = 'loading' | 'ready' | 'error';
 
 const STEP_LABELS: Record<Step, string> = {
   1: 'Serviço',
   2: 'Profissional',
   3: 'Horário',
 };
-
-function formatSlotTime(isoString: string): string {
-  return new Date(isoString).toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'America/Sao_Paulo',
-  });
-}
-
-function formatDateBR(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-');
-  return `${day}/${month}/${year}`;
-}
 
 export default function BookPage() {
   const router = useRouter();
@@ -73,9 +71,12 @@ export default function BookPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [employeesStatus, setEmployeesStatus] = useState<LoadStatus>('loading');
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState(false);
+  const [slotsReloadKey, setSlotsReloadKey] = useState(0);
   const [dayClosed, setDayClosed] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -108,23 +109,27 @@ export default function BookPage() {
     loadCatalog();
   }, []);
 
-  useEffect(() => {
-    if (!selectedProduct) return;
-    async function loadEmployees() {
-      try {
-        const res = await getEmployees(false);
-        if (res.data?.employees) {
-          const filtered = res.data.employees.filter((emp) =>
-            emp.products.some((ep) => ep.product.id === selectedProduct!.id),
-          );
-          setEmployees(filtered);
-        }
-      } catch {
-        toast.error('Erro ao carregar profissionais');
-      }
+  // A lista de profissionais é carregada uma vez e filtrada pelo serviço escolhido: ir e voltar
+  // entre os passos nunca a esvazia (UX-01).
+  const loadEmployees = useCallback(async () => {
+    setEmployeesStatus('loading');
+    try {
+      const res = await getEmployees(false);
+      setAllEmployees(res.data?.employees ?? []);
+      setEmployeesStatus('ready');
+    } catch {
+      setEmployeesStatus('error');
     }
-    loadEmployees();
-  }, [selectedProduct]);
+  }, []);
+
+  useEffect(() => {
+    void loadEmployees();
+  }, [loadEmployees]);
+
+  const employees = useMemo(
+    () => employeesForProduct(allEmployees, selectedProduct?.id),
+    [allEmployees, selectedProduct],
+  );
 
   useEffect(() => {
     if (!selectedEmployee) {
@@ -154,30 +159,42 @@ export default function BookPage() {
     };
   }, [selectedEmployee]);
 
-  const fetchSlots = useCallback(async (employeeId: string, productId: string, date: string) => {
+  // ARQ-07: só a resposta da busca mais recente vale. Trocar de dia, profissional ou serviço
+  // descarta a anterior, e a grade nunca mostra (nem reserva) horários de outro dia.
+  useEffect(() => {
+    if (!selectedEmployee || !selectedProduct || !selectedDate) {
+      setSlotsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const date = selectedDate;
     setSlotsLoading(true);
+    setSlotsError(false);
     setSelectedSlot(null);
     setDayClosed(false);
-    try {
-      const res = await getAvailableSlots(employeeId, productId, date);
-      if (res.data?.isClosed) {
-        setDayClosed(true);
-        setSlots([]);
-      } else if (res.data?.slots) {
-        setSlots(res.data.slots);
-      }
-    } catch {
-      toast.error('Erro ao carregar horários');
-    } finally {
-      setSlotsLoading(false);
-    }
-  }, []);
+    setSlots([]);
 
-  useEffect(() => {
-    if (selectedEmployee && selectedProduct && selectedDate) {
-      fetchSlots(selectedEmployee.id, selectedProduct.id, selectedDate);
-    }
-  }, [selectedEmployee, selectedProduct, selectedDate, fetchSlots]);
+    getAvailableSlots(selectedEmployee.id, selectedProduct.id, date)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.isClosed) {
+          setDayClosed(true);
+          return;
+        }
+        setSlots(slotsForDate(res.data?.slots ?? [], date));
+      })
+      .catch(() => {
+        if (!cancelled) setSlotsError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setSlotsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployee, selectedProduct, selectedDate, slotsReloadKey]);
 
   useEffect(() => {
     if (step !== 3) return;
@@ -200,16 +217,20 @@ export default function BookPage() {
     }
   }, [step, selectedDate, hours, specialDays, employeeHours, employeeSpecialDays]);
 
+  function selectProduct(product: Product) {
+    setSelectedProduct(product);
+    // Profissional que não faz o novo serviço deixa de valer; quem faz continua escolhido.
+    if (selectedEmployee && !offersProduct(selectedEmployee, product.id)) {
+      setSelectedEmployee(null);
+    }
+  }
+
   function goNext() {
     if (step < 3) setStep((s) => (s + 1) as Step);
   }
 
   function goBack() {
     if (step > 1) {
-      if (step === 2) {
-        setSelectedEmployee(null);
-        setEmployees([]);
-      }
       if (step === 3) {
         setSelectedDate('');
         setSelectedSlot(null);
@@ -222,6 +243,11 @@ export default function BookPage() {
   async function handleSubmit() {
     if (!selectedProduct || !selectedEmployee || !selectedSlot) {
       toast.error('Preencha todos os campos');
+      return;
+    }
+    if (slotDateKey(selectedSlot.start) !== selectedDate) {
+      setSelectedSlot(null);
+      toast.error('Esse horário não é do dia selecionado. Escolha o horário de novo.');
       return;
     }
 
@@ -320,7 +346,7 @@ export default function BookPage() {
                       <button
                         key={product.id}
                         type="button"
-                        onClick={() => setSelectedProduct(product)}
+                        onClick={() => selectProduct(product)}
                         data-motion="lift"
                         className={cn(
                           'rounded-[1.35rem] bg-[var(--admin-card-muted)] p-4 text-left transition-colors hover:bg-[var(--admin-hover)]',
@@ -372,7 +398,27 @@ export default function BookPage() {
                   </p>
                 </div>
               </div>
-              {employees.length === 0 ? (
+              {employeesStatus === 'loading' ? (
+                <div className="flex items-center justify-center py-12" role="status">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                  <span className="sr-only">Carregando profissionais…</span>
+                </div>
+              ) : employeesStatus === 'error' ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12 text-center">
+                  <User className="mb-3 size-10 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">
+                    Não foi possível carregar os profissionais.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 rounded-full"
+                    onClick={() => void loadEmployees()}
+                  >
+                    Tentar de novo
+                  </Button>
+                </div>
+              ) : employees.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-12">
                   <User className="mb-3 size-10 text-muted-foreground/40" />
                   <p className="text-sm text-muted-foreground">
@@ -444,8 +490,22 @@ export default function BookPage() {
               </div>
 
               {slotsLoading ? (
-                <div className="flex items-center justify-center py-10">
+                <div className="flex items-center justify-center py-10" role="status">
                   <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                  <span className="sr-only">Carregando horários…</span>
+                </div>
+              ) : slotsError ? (
+                <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10 text-center">
+                  <Clock className="mb-2 size-8 text-muted-foreground/40" />
+                  <p className="text-sm font-medium">Não foi possível carregar os horários</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 rounded-full"
+                    onClick={() => setSlotsReloadKey((key) => key + 1)}
+                  >
+                    Tentar de novo
+                  </Button>
                 </div>
               ) : dayClosed ? (
                 <div className="flex flex-col items-center justify-center rounded-[1.35rem] bg-[var(--admin-card-muted)] py-10">
@@ -498,9 +558,22 @@ export default function BookPage() {
                   placeholder="Alguma informação adicional..."
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
+                  maxLength={NOTES_MAX_LENGTH}
+                  aria-describedby="notes-count"
                   rows={2}
                   className="resize-none rounded-2xl text-sm"
                 />
+                <p
+                  id="notes-count"
+                  className={cn(
+                    'text-right text-xs tabular-nums',
+                    notes.length >= NOTES_MAX_LENGTH
+                      ? 'text-destructive'
+                      : 'text-muted-foreground/70',
+                  )}
+                >
+                  {notes.length}/{NOTES_MAX_LENGTH} caracteres
+                </p>
               </div>
             </section>
 
@@ -518,7 +591,11 @@ export default function BookPage() {
                 <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Data</span>
                   <span className="text-right font-medium">
-                    {selectedDate ? formatDateBR(selectedDate) : '—'}
+                    {selectedSlot
+                      ? formatSlotDate(selectedSlot.start)
+                      : selectedDate
+                        ? formatDateKey(selectedDate)
+                        : '—'}
                   </span>
                 </div>
                 <div className="flex justify-between gap-3">

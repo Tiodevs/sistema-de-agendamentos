@@ -14,6 +14,7 @@ import {
 import { formatCurrency, formatDuration } from '@/lib/format';
 import { iconForProduct } from '@/lib/admin-accents';
 import { STATUS_CONFIG } from '@/lib/appointment-status';
+import { cancellationState, formatDeadline } from '@/lib/status-actions';
 import { Button } from '@/components/ui/button';
 import {
   CalendarOff,
@@ -278,6 +279,8 @@ export function UserHomePage() {
   }, [appointments]);
 
   const NextIcon = nextAppointment ? iconForProduct(nextAppointment.product.name) : null;
+  // DOM-09: até quando o cliente cancela sozinho (o cancelamento fica em "Meus agendamentos").
+  const nextCancellation = nextAppointment ? cancellationState(nextAppointment, 'CLIENT') : null;
   const gapDays = lastBooking
     ? Math.max(0, calendarDaysBetween(ymdFromIso(lastBooking.date), today))
     : user?.createdAt
@@ -396,6 +399,15 @@ export function UserHomePage() {
                 <p className="mt-1 text-sm text-white/55">
                   {formatShortDate(nextAppointment.date)} · {formatCurrency(nextAppointment.price)}
                 </p>
+                {nextCancellation?.kind === 'allowed' && nextCancellation.until ? (
+                  <p className="mt-1 text-xs text-white/45">
+                    Cancele até {formatDeadline(nextCancellation.until)}
+                  </p>
+                ) : nextCancellation?.kind === 'studio-only' ? (
+                  <p className="mt-1 text-xs text-white/45">
+                    Para cancelar agora, fale com o estúdio.
+                  </p>
+                ) : null}
               </div>
               <div className="flex min-w-0 items-center gap-3 sm:max-w-[55%] sm:justify-end">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">

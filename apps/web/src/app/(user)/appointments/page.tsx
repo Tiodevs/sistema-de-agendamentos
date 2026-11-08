@@ -1,8 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { getMyAppointments, cancelMyAppointment, type Appointment } from '@/lib/api';
+import {
+  apiErrorMessage,
+  getMyAppointments,
+  cancelMyAppointment,
+  type Appointment,
+} from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { cancellationState, formatDeadline } from '@/lib/status-actions';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -88,14 +94,14 @@ export default function MyAppointmentsPage() {
     setCancelling(true);
     try {
       await cancelMyAppointment(cancelId);
-      toast.success('Agendamento cancelado com sucesso');
-      setCancelId(null);
-      loadAppointments();
+      toast.success('Agendamento cancelado. Enviamos a confirmação por e-mail.');
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao cancelar agendamento');
+      // Ex.: o prazo de cancelamento venceu com a tela aberta (DOM-09): a API explica o motivo.
+      toast.error(apiErrorMessage(err, 'Erro ao cancelar agendamento'));
     } finally {
       setCancelling(false);
+      setCancelId(null);
+      loadAppointments();
     }
   }
 
@@ -114,12 +120,9 @@ export default function MyAppointmentsPage() {
   });
 
   const cancellingAppointment = appointments.find((appointment) => appointment.id === cancelId);
-
-  function canCancel(appointment: Appointment): boolean {
-    return (
-      ['SCHEDULED', 'CONFIRMED'].includes(appointment.status) && new Date(appointment.date) > now
-    );
-  }
+  const cancellingUntil = cancellingAppointment
+    ? cancellationState(cancellingAppointment, 'CLIENT', now)
+    : null;
 
   if (loading) return null;
 
@@ -212,62 +215,76 @@ export default function MyAppointmentsPage() {
             </p>
           </div>
           <StaggerIn replayKey={activeTab} selector="[data-row]" className="divide-y divide-border">
-            {displayedAppointments.map((appointment) => (
-              <div
-                key={appointment.id}
-                data-row
-                data-motion="lift"
-                className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
-              >
-                <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
-                  <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
-                    <span className="text-[11px] leading-tight text-muted-foreground">
-                      {formatDayMonth(appointment.date)}
-                    </span>
-                    <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
-                      {formatTime(appointment.date)}
-                    </span>
-                  </div>
-                  <UserAvatar
-                    name={appointment.employee.name}
-                    src={appointment.employee.avatar}
-                    className="hidden size-10 shrink-0 sm:flex"
-                    fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{appointment.product.name}</p>
-                      <StatusBadge status={appointment.status} />
+            {displayedAppointments.map((appointment) => {
+              // DOM-09: quem decide é a API (antecedência mínima); a tela mostra até quando.
+              const cancellation = cancellationState(appointment, 'CLIENT', now);
+              return (
+                <div
+                  key={appointment.id}
+                  data-row
+                  data-motion="lift"
+                  className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:px-5"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+                    <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
+                      <span className="text-[11px] leading-tight text-muted-foreground">
+                        {formatDayMonth(appointment.date)}
+                      </span>
+                      <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
+                        {formatTime(appointment.date)}
+                      </span>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {appointment.employee.name}
-                    </p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      <span className="tabular-nums">
-                        {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
-                      </span>
-                      <span className="mx-1.5">·</span>
-                      <span className="font-medium text-foreground">
-                        {formatCurrency(appointment.price)}
-                      </span>
-                    </p>
-                    {appointment.notes ? (
-                      <p className="mt-1 text-xs text-muted-foreground">{appointment.notes}</p>
-                    ) : null}
+                    <UserAvatar
+                      name={appointment.employee.name}
+                      src={appointment.employee.avatar}
+                      className="hidden size-10 shrink-0 sm:flex"
+                      fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{appointment.product.name}</p>
+                        <StatusBadge status={appointment.status} />
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {appointment.employee.name}
+                      </p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        <span className="tabular-nums">
+                          {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
+                        </span>
+                        <span className="mx-1.5">·</span>
+                        <span className="font-medium text-foreground">
+                          {formatCurrency(appointment.price)}
+                        </span>
+                      </p>
+                      {appointment.notes ? (
+                        <p className="mt-1 text-xs text-muted-foreground">{appointment.notes}</p>
+                      ) : null}
+                      {cancellation.kind === 'allowed' && cancellation.until ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Cancele até {formatDeadline(cancellation.until, now)}
+                        </p>
+                      ) : null}
+                      {cancellation.kind === 'studio-only' ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Para cancelar agora, fale com o estúdio.
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
+                  {cancellation.kind === 'allowed' ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto sm:shrink-0"
+                      onClick={() => setCancelId(appointment.id)}
+                    >
+                      Cancelar
+                    </Button>
+                  ) : null}
                 </div>
-                {canCancel(appointment) ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto sm:shrink-0"
-                    onClick={() => setCancelId(appointment.id)}
-                  >
-                    Cancelar
-                  </Button>
-                ) : null}
-              </div>
-            ))}
+              );
+            })}
           </StaggerIn>
         </section>
       )}
@@ -297,8 +314,14 @@ export default function MyAppointmentsPage() {
                 </strong>
               </>
             ) : null}
-            ? O horário ficará disponível para outros clientes.
+            ? O horário ficará disponível para outros clientes e o profissional será avisado.
           </p>
+          {cancellingUntil?.kind === 'allowed' && cancellingUntil.until ? (
+            <p className="text-xs text-muted-foreground">
+              Cancelamentos por aqui valem até {formatDeadline(cancellingUntil.until, now)}. Depois
+              disso, só falando com o estúdio.
+            </p>
+          ) : null}
           <DialogFooter>
             <Button
               variant="outline"

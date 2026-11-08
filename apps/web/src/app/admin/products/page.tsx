@@ -7,6 +7,7 @@ import {
   updateProduct,
   toggleProduct,
   deleteProduct,
+  apiErrorMessage,
   type Product,
   type ProductPayload,
 } from '@/lib/api';
@@ -72,8 +73,7 @@ export default function ProductsPage() {
       toast.success('Produto cadastrado com sucesso!');
       await fetchProducts();
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao cadastrar produto');
+      toast.error(apiErrorMessage(err, 'Erro ao cadastrar produto'));
       throw err;
     }
   }
@@ -85,8 +85,7 @@ export default function ProductsPage() {
       toast.success('Produto atualizado com sucesso!');
       await fetchProducts();
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao atualizar produto');
+      toast.error(apiErrorMessage(err, 'Erro ao atualizar produto'));
       throw err;
     }
   }
@@ -96,8 +95,8 @@ export default function ProductsPage() {
       await toggleProduct(product.id);
       toast.success(product.active ? 'Produto desativado' : 'Produto ativado');
       await fetchProducts();
-    } catch {
-      toast.error('Erro ao alterar status');
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Erro ao alterar status'));
     }
   }
 
@@ -108,11 +107,17 @@ export default function ProductsPage() {
       toast.success('Produto excluído com sucesso!');
       await fetchProducts();
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao excluir produto');
+      toast.error(apiErrorMessage(err, 'Erro ao excluir produto'));
+      // Ex.: alguém agendou no meio do caminho (409 HAS_APPOINTMENTS): a lista atualizada faz o
+      // diálogo oferecer "Desativar".
+      await fetchProducts();
       throw err;
     }
   }
+
+  // Quando a lista recarrega, o diálogo de exclusão passa a ver o registro atualizado.
+  const deletingCurrent =
+    products.find((product) => product.id === deletingProduct?.id) ?? deletingProduct;
 
   if (loading) return null;
 
@@ -263,8 +268,13 @@ export default function ProductsPage() {
       <DeleteProductDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        productName={deletingProduct?.name || ''}
+        product={deletingCurrent}
         onConfirm={handleDelete}
+        onDeactivate={() => {
+          const target = deletingCurrent;
+          setDeleteDialogOpen(false);
+          if (target) void handleToggle(target);
+        }}
       />
     </StaggerIn>
   );

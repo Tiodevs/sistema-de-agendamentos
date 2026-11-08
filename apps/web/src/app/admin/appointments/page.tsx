@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getAppointments,
   updateAppointmentStatus,
-  deleteAppointment,
+  undoAppointmentStatus,
   type Appointment,
-  type AppointmentStatus,
 } from '@/lib/api';
-import { formatCurrency, formatDate, formatShortName } from '@/lib/format';
+import { formatCurrency, formatShortName } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
+import { STATUS_ACTION_LABELS, effectiveAllowed, groupActions } from '@/lib/status-actions';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -22,26 +22,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { UserAvatar } from '@/components/user-avatar';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
-import {
-  Plus,
-  Search,
-  MoreHorizontal,
-  Loader2,
-  CalendarDays,
-  Trash2,
-  AlertTriangle,
-} from 'lucide-react';
+import { StatusConfirmDialog } from '@/components/appointments/status-confirm-dialog';
+import { useStatusChange } from '@/components/appointments/use-status-change';
+import { Plus, Search, MoreHorizontal, Loader2, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
 
@@ -73,9 +59,6 @@ export default function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deletingAppointment, setDeletingAppointment] = useState<Appointment | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -89,6 +72,13 @@ export default function AppointmentsPage() {
       setLoading(false);
     }
   }, [statusFilter]);
+
+  // UX-06 / DOM-01: só as mudanças que a API permite; cancelar e registrar falta confirmam antes.
+  const statusChange = useStatusChange({
+    change: updateAppointmentStatus,
+    undo: undoAppointmentStatus,
+    onChanged: fetchAppointments,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -106,32 +96,6 @@ export default function AppointmentsPage() {
       appointment.product.name.toLowerCase().includes(search.toLowerCase()) ||
       appointment.employee.name.toLowerCase().includes(search.toLowerCase()),
   );
-
-  async function handleStatusChange(id: string, status: AppointmentStatus) {
-    try {
-      await updateAppointmentStatus(id, status);
-      toast.success(`Status atualizado para "${STATUS_CONFIG[status].label}"`);
-      await fetchAppointments();
-    } catch {
-      toast.error('Erro ao atualizar status');
-    }
-  }
-
-  async function handleDelete() {
-    if (!deletingAppointment) return;
-    setDeleteLoading(true);
-    try {
-      await deleteAppointment(deletingAppointment.id);
-      toast.success('Agendamento excluído com sucesso!');
-      setDeleteDialogOpen(false);
-      await fetchAppointments();
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao excluir agendamento');
-    } finally {
-      setDeleteLoading(false);
-    }
-  }
 
   if (loading) return null;
 
@@ -228,141 +192,124 @@ export default function AppointmentsPage() {
             selector="[data-row]"
             className="divide-y divide-border"
           >
-            {filteredAppointments.map((appointment) => (
-              <div
-                key={appointment.id}
-                data-row
-                data-motion="lift"
-                className="flex items-start gap-3 px-4 py-4 sm:items-center sm:px-5"
-              >
-                <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
-                  <span className="text-[11px] leading-tight text-muted-foreground">
-                    {formatDayMonth(appointment.date)}
-                  </span>
-                  <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
-                    {formatTime(appointment.date)}
-                  </span>
-                </div>
-                <UserAvatar
-                  name={appointment.client.name}
-                  src={appointment.client.avatarUrl}
-                  className="hidden size-10 shrink-0 md:flex"
-                  fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                    <Link
-                      href={`/admin/clients/${appointment.client.id}`}
-                      className="min-w-0 truncate font-medium hover:underline"
-                      title={appointment.client.name}
-                    >
-                      {formatShortName(appointment.client.name)}
-                    </Link>
-                    <StatusBadge status={appointment.status} />
+            {filteredAppointments.map((appointment) => {
+              const { progress, destructive } = groupActions(
+                effectiveAllowed(appointment, 'ADMIN'),
+              );
+              const busy = statusChange.updatingId === appointment.id;
+
+              return (
+                <div
+                  key={appointment.id}
+                  data-row
+                  data-motion="lift"
+                  className="flex items-start gap-3 px-4 py-4 sm:items-center sm:px-5"
+                >
+                  <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
+                    <span className="text-[11px] leading-tight text-muted-foreground">
+                      {formatDayMonth(appointment.date)}
+                    </span>
+                    <span className="mt-1 text-sm font-semibold leading-none tabular-nums">
+                      {formatTime(appointment.date)}
+                    </span>
                   </div>
-                  <p
-                    className="mt-1 truncate text-sm text-muted-foreground"
-                    title={appointment.product.name}
-                  >
-                    {appointment.product.name}
+                  <UserAvatar
+                    name={appointment.client.name}
+                    src={appointment.client.avatarUrl}
+                    className="hidden size-10 shrink-0 md:flex"
+                    fallbackClassName="bg-[var(--admin-card-muted)] text-xs"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                      <Link
+                        href={`/admin/clients/${appointment.client.id}`}
+                        className="min-w-0 truncate font-medium hover:underline"
+                        title={appointment.client.name}
+                      >
+                        {formatShortName(appointment.client.name)}
+                      </Link>
+                      <StatusBadge status={appointment.status} />
+                    </div>
+                    <p
+                      className="mt-1 truncate text-sm text-muted-foreground"
+                      title={appointment.product.name}
+                    >
+                      {appointment.product.name}
+                    </p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
+                      <span className="truncate" title={appointment.employee.name}>
+                        {formatShortName(appointment.employee.name)}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <span className="whitespace-nowrap tabular-nums">
+                        {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
+                      </span>
+                      <span className="sm:hidden" aria-hidden>
+                        ·
+                      </span>
+                      <span className="whitespace-nowrap font-medium text-foreground sm:hidden">
+                        {formatCurrency(appointment.price)}
+                      </span>
+                    </p>
+                  </div>
+                  <p className="hidden shrink-0 font-semibold tabular-nums sm:block">
+                    {formatCurrency(appointment.price)}
                   </p>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
-                    <span className="truncate" title={appointment.employee.name}>
-                      {formatShortName(appointment.employee.name)}
-                    </span>
-                    <span aria-hidden>·</span>
-                    <span className="whitespace-nowrap tabular-nums">
-                      {formatTime(appointment.date)} – {formatTime(appointment.endDate)}
-                    </span>
-                    <span className="sm:hidden" aria-hidden>
-                      ·
-                    </span>
-                    <span className="whitespace-nowrap font-medium text-foreground sm:hidden">
-                      {formatCurrency(appointment.price)}
-                    </span>
-                  </p>
-                </div>
-                <p className="hidden shrink-0 font-semibold tabular-nums sm:block">
-                  {formatCurrency(appointment.price)}
-                </p>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-2xl">
-                      <MoreHorizontal className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="rounded-2xl">
-                    {STATUS_OPTIONS.filter((status) => status !== appointment.status).map(
-                      (status) => (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-9 shrink-0 rounded-2xl"
+                        aria-label={`Ações do agendamento de ${appointment.client.name}`}
+                        disabled={busy}
+                      >
+                        {busy ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <MoreHorizontal className="size-4" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="rounded-2xl">
+                      {progress.length === 0 && destructive.length === 0 ? (
+                        <DropdownMenuItem disabled>Sem mudanças possíveis</DropdownMenuItem>
+                      ) : null}
+                      {progress.map((status) => (
                         <DropdownMenuItem
                           key={status}
-                          onClick={() => handleStatusChange(appointment.id, status)}
+                          onClick={() => statusChange.request(appointment, status)}
                         >
-                          Marcar como {STATUS_CONFIG[status].label}
+                          {STATUS_ACTION_LABELS[status]}
                         </DropdownMenuItem>
-                      ),
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => {
-                        setDeletingAppointment(appointment);
-                        setDeleteDialogOpen(true);
-                      }}
-                    >
-                      <Trash2 className="size-4" />
-                      Excluir
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ))}
+                      ))}
+                      {progress.length > 0 && destructive.length > 0 ? (
+                        <DropdownMenuSeparator />
+                      ) : null}
+                      {destructive.map((status) => (
+                        <DropdownMenuItem
+                          key={status}
+                          variant="destructive"
+                          onClick={() => statusChange.request(appointment, status)}
+                        >
+                          {STATUS_ACTION_LABELS[status]}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })}
           </StaggerIn>
         </section>
       )}
 
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="rounded-3xl sm:max-w-[425px]">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-destructive/10">
-                <AlertTriangle className="size-5 text-destructive" />
-              </div>
-              <div>
-                <DialogTitle>Excluir agendamento</DialogTitle>
-                <DialogDescription>Esta ação não pode ser desfeita.</DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Tem certeza que deseja excluir o agendamento de{' '}
-            <strong className="text-foreground">{deletingAppointment?.client.name}</strong> em{' '}
-            <strong className="text-foreground">
-              {deletingAppointment ? formatDate(deletingAppointment.date) : ''}
-            </strong>
-            ?
-          </p>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleteLoading}
-            >
-              Cancelar
-            </Button>
-            <Button
-              variant="destructive"
-              className="rounded-full"
-              onClick={handleDelete}
-              disabled={deleteLoading}
-            >
-              {deleteLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-              Excluir
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StatusConfirmDialog
+        pending={statusChange.pending}
+        loading={statusChange.isUpdating}
+        onConfirm={statusChange.confirmPending}
+        onDismiss={statusChange.dismissPending}
+      />
     </StaggerIn>
   );
 }

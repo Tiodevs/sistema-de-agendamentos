@@ -1,14 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getProfessionalAppointments,
   updateProfessionalAppointmentStatus,
+  undoProfessionalAppointmentStatus,
   type Appointment,
   type AppointmentStatus,
 } from '@/lib/api';
 import { formatCurrency, formatDateShort } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
+import {
+  STATUS_ACTION_LABELS,
+  cancellationState,
+  effectiveAllowed,
+  formatDeadline,
+  groupActions,
+  inlineActions,
+} from '@/lib/status-actions';
+import { todayDateKey } from '@/lib/datetime';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,28 +31,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { StatusConfirmDialog } from '@/components/appointments/status-confirm-dialog';
+import { useStatusChange } from '@/components/appointments/use-status-change';
 import {
   CalendarDays,
+  CheckCheck,
   CheckCircle2,
   Clock,
   Loader2,
   Mail,
+  MoreHorizontal,
   Phone,
   PlayCircle,
   Search,
+  UserX,
+  XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
 
-const NEXT_ACTIONS: Partial<
-  Record<AppointmentStatus, Array<{ status: AppointmentStatus; label: string; icon: LucideIcon }>>
-> = {
-  SCHEDULED: [{ status: 'CONFIRMED', label: 'Confirmar', icon: CheckCircle2 }],
-  CONFIRMED: [{ status: 'IN_PROGRESS', label: 'Iniciar', icon: PlayCircle }],
-  IN_PROGRESS: [{ status: 'COMPLETED', label: 'Concluir', icon: CheckCircle2 }],
+const ACTION_ICONS: Partial<Record<AppointmentStatus, LucideIcon>> = {
+  CONFIRMED: CheckCircle2,
+  IN_PROGRESS: PlayCircle,
+  COMPLETED: CheckCheck,
+  NO_SHOW: UserX,
+  CANCELLED: XCircle,
 };
 
 function formatTime(isoString: string) {
@@ -77,45 +99,49 @@ function formatDayHeading(isoString: string) {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-function todayDateKey() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 function dateKeyFromIso(isoString: string) {
   return new Date(isoString).toLocaleDateString('en-CA', {
     timeZone: 'America/Sao_Paulo',
   });
 }
 
+/** Aviso para quando o cancelamento pelo painel já fechou (DOM-03 / DOM-09). */
+function studioOnlyHint(appointment: Appointment) {
+  return appointment.cancellableUntil
+    ? `Cancelamento pelo painel só até ${formatDeadline(appointment.cancellableUntil)}. Agora, só pelo estúdio.`
+    : 'Cancelar agora, só pelo estúdio.';
+}
+
 export default function ProfessionalAgendaPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [dateFrom, setDateFrom] = useState(todayDateKey);
+  // UX-05: "hoje" no fuso de São Paulo, não no relógio do aparelho.
+  const [dateFrom, setDateFrom] = useState(() => todayDateKey());
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
-  const [selectedApt, setSelectedApt] = useState<Appointment | null>(null);
-  const [updating, setUpdating] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const requestRef = useRef(0);
 
   const loadAppointments = useCallback(async () => {
+    // Troca rápida de filtro: só a resposta do pedido mais recente entra na tela.
+    const requestId = ++requestRef.current;
     try {
+      // Datas vão como YYYY-MM-DD: a API lê o dia inteiro em São Paulo (00:00 a 23:59:59.999).
       const params: { from?: string; to?: string; status?: string } = {};
       if (dateFrom) params.from = dateFrom;
       if (dateTo) params.to = dateTo;
       if (statusFilter !== 'ALL') params.status = statusFilter;
 
       const res = await getProfessionalAppointments(params);
+      if (requestId !== requestRef.current) return;
       if (res.data?.appointments) {
         setAppointments(res.data.appointments);
       }
     } catch {
-      toast.error('Erro ao carregar agendamentos');
+      if (requestId === requestRef.current) toast.error('Erro ao carregar agendamentos');
     } finally {
-      setLoading(false);
+      if (requestId === requestRef.current) setLoading(false);
     }
   }, [dateFrom, dateTo, statusFilter]);
 
@@ -123,19 +149,16 @@ export default function ProfessionalAgendaPage() {
     loadAppointments();
   }, [loadAppointments]);
 
-  async function handleStatusUpdate(appointmentId: string, newStatus: AppointmentStatus) {
-    try {
-      setUpdating(true);
-      await updateProfessionalAppointmentStatus(appointmentId, newStatus);
-      toast.success(`Status atualizado para "${STATUS_CONFIG[newStatus].label}"`);
-      setSelectedApt(null);
-      await loadAppointments();
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao atualizar status');
-    } finally {
-      setUpdating(false);
-    }
+  // DOM-03: confirmar, iniciar, concluir, registrar falta e cancelar pela máquina de estados.
+  const statusChange = useStatusChange({
+    change: updateProfessionalAppointmentStatus,
+    undo: undoProfessionalAppointmentStatus,
+    onChanged: loadAppointments,
+  });
+
+  function requestStatus(appointment: Appointment, status: AppointmentStatus) {
+    setSelectedId(null);
+    statusChange.request(appointment, status);
   }
 
   const displayedAppointments = useMemo(() => {
@@ -167,7 +190,10 @@ export default function ProfessionalAgendaPage() {
   }, [displayedAppointments]);
 
   const todayKey = todayDateKey();
-  const selectedActions = selectedApt ? (NEXT_ACTIONS[selectedApt.status] ?? []) : [];
+  const selectedApt = appointments.find((appointment) => appointment.id === selectedId) ?? null;
+  const selectedAllowed = selectedApt ? effectiveAllowed(selectedApt, 'EMPLOYEE') : [];
+  const selectedGroups = groupActions(selectedAllowed);
+  const selectedCancellation = selectedApt ? cancellationState(selectedApt, 'EMPLOYEE') : null;
 
   if (loading) return null;
 
@@ -203,6 +229,7 @@ export default function ProfessionalAgendaPage() {
               <Input
                 type="date"
                 value={dateTo}
+                min={dateFrom || undefined}
                 onChange={(event) => setDateTo(event.target.value)}
                 aria-label="Data fim"
                 className="rounded-full"
@@ -280,7 +307,13 @@ export default function ProfessionalAgendaPage() {
                   ) : null}
                 </div>
                 {group.items.map((appointment) => {
-                  const actions = NEXT_ACTIONS[appointment.status] ?? [];
+                  const allowed = effectiveAllowed(appointment, 'EMPLOYEE');
+                  const actions = inlineActions(allowed);
+                  const { destructive } = groupActions(allowed);
+                  const cancellation = cancellationState(appointment, 'EMPLOYEE');
+                  const busy = statusChange.updatingId === appointment.id;
+                  const showMenu = destructive.length > 0 || cancellation.kind === 'studio-only';
+
                   return (
                     <div
                       key={appointment.id}
@@ -290,7 +323,7 @@ export default function ProfessionalAgendaPage() {
                     >
                       <button
                         type="button"
-                        onClick={() => setSelectedApt(appointment)}
+                        onClick={() => setSelectedId(appointment.id)}
                         className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
                       >
                         <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">
@@ -326,24 +359,59 @@ export default function ProfessionalAgendaPage() {
                           </p>
                         </div>
                       </button>
-                      {actions.length > 0 ? (
-                        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
-                          {actions.map((action) => {
-                            const Icon = action.icon;
+                      {actions.length > 0 || showMenu ? (
+                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+                          {actions.map((status) => {
+                            const Icon = ACTION_ICONS[status] ?? CheckCircle2;
                             return (
                               <Button
-                                key={action.status}
+                                key={status}
                                 size="sm"
                                 variant="outline"
                                 className="rounded-full"
-                                disabled={updating}
-                                onClick={() => handleStatusUpdate(appointment.id, action.status)}
+                                disabled={statusChange.isUpdating}
+                                onClick={() => requestStatus(appointment, status)}
                               >
-                                <Icon className="size-4" />
-                                {action.label}
+                                {busy ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <Icon className="size-4" />
+                                )}
+                                {STATUS_ACTION_LABELS[status]}
                               </Button>
                             );
                           })}
+                          {showMenu ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-8 rounded-full"
+                                  aria-label={`Mais ações do horário de ${appointment.client?.name ?? 'cliente'}`}
+                                  disabled={statusChange.isUpdating}
+                                >
+                                  <MoreHorizontal className="size-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="rounded-2xl">
+                                {destructive.map((status) => (
+                                  <DropdownMenuItem
+                                    key={status}
+                                    variant="destructive"
+                                    onClick={() => requestStatus(appointment, status)}
+                                  >
+                                    {STATUS_ACTION_LABELS[status]}
+                                  </DropdownMenuItem>
+                                ))}
+                                {cancellation.kind === 'studio-only' ? (
+                                  <DropdownMenuItem disabled>
+                                    Cancelar agora, só pelo estúdio
+                                  </DropdownMenuItem>
+                                ) : null}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -355,7 +423,7 @@ export default function ProfessionalAgendaPage() {
         </section>
       )}
 
-      <Dialog open={!!selectedApt} onOpenChange={(open) => !open && setSelectedApt(null)}>
+      <Dialog open={!!selectedApt} onOpenChange={(open) => !open && setSelectedId(null)}>
         <DialogContent className="rounded-3xl sm:max-w-md">
           {selectedApt ? (
             <>
@@ -422,25 +490,44 @@ export default function ProfessionalAgendaPage() {
                     <p className="mt-1 text-sm">{selectedApt.notes}</p>
                   </div>
                 ) : null}
+
+                {selectedCancellation?.kind === 'studio-only' ? (
+                  <p className="text-sm text-muted-foreground">{studioOnlyHint(selectedApt)}</p>
+                ) : null}
               </div>
 
-              {selectedActions.length > 0 ? (
-                <DialogFooter className="gap-2 sm:gap-0">
-                  {selectedActions.map((action) => {
-                    const Icon = action.icon;
+              {selectedGroups.progress.length > 0 || selectedGroups.destructive.length > 0 ? (
+                <DialogFooter className="flex-wrap gap-2 sm:gap-2">
+                  {selectedGroups.destructive.map((status) => {
+                    const Icon = ACTION_ICONS[status] ?? XCircle;
                     return (
                       <Button
-                        key={action.status}
-                        className="rounded-full"
-                        onClick={() => handleStatusUpdate(selectedApt.id, action.status)}
-                        disabled={updating}
+                        key={status}
+                        variant="outline"
+                        className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => requestStatus(selectedApt, status)}
+                        disabled={statusChange.isUpdating}
                       >
-                        {updating ? (
+                        <Icon className="size-4" />
+                        {STATUS_ACTION_LABELS[status]}
+                      </Button>
+                    );
+                  })}
+                  {selectedGroups.progress.map((status) => {
+                    const Icon = ACTION_ICONS[status] ?? CheckCircle2;
+                    return (
+                      <Button
+                        key={status}
+                        className="rounded-full"
+                        onClick={() => requestStatus(selectedApt, status)}
+                        disabled={statusChange.isUpdating}
+                      >
+                        {statusChange.updatingId === selectedApt.id ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
                           <Icon className="size-4" />
                         )}
-                        {action.label}
+                        {STATUS_ACTION_LABELS[status]}
                       </Button>
                     );
                   })}
@@ -450,6 +537,14 @@ export default function ProfessionalAgendaPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <StatusConfirmDialog
+        pending={statusChange.pending}
+        loading={statusChange.isUpdating}
+        onConfirm={statusChange.confirmPending}
+        onDismiss={statusChange.dismissPending}
+        showEmployee={false}
+      />
     </StaggerIn>
   );
 }

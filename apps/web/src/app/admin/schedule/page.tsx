@@ -7,10 +7,14 @@ import {
   getSpecialDays,
   createSpecialDay,
   deleteSpecialDay,
+  apiErrorMessage,
   type BusinessHour,
   type BusinessHourPayload,
   type SpecialDay,
 } from '@/lib/api';
+import { impactMessage } from '@/lib/affected-appointments';
+import { todayDateKey } from '@/lib/datetime';
+import { splitSpecialDays } from '@/lib/special-days';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,7 +50,17 @@ import { cn } from '@/lib/utils';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { ScheduleHoursEditor } from '@/components/admin/schedule-hours-editor';
 import { ProfessionalSchedulePanel } from '@/components/admin/professional-schedule-panel';
+import {
+  AffectedAppointmentsDialog,
+  useAffectedAppointments,
+} from '@/components/admin/affected-appointments-dialog';
 import { StaggerIn } from '@/components/motion/stagger-in';
+
+/** "24/12" de um dia `YYYY-MM-DD`. */
+function formatDayMonthKey(dateKey: string) {
+  const [, month, day] = dateKey.slice(0, 10).split('-');
+  return `${day}/${month}`;
+}
 
 function formatDateBR(dateStr: string): string {
   const date = new Date(dateStr + 'T12:00:00');
@@ -81,6 +95,8 @@ export default function SchedulePage() {
   const [creatingDay, setCreatingDay] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // DOM-02: fechar dia ou mudar expediente com horários marcados pede uma decisão.
+  const affected = useAffectedAppointments();
 
   const loadData = useCallback(async () => {
     try {
@@ -120,15 +136,15 @@ export default function SchedulePage() {
 
   async function handleSaveHours() {
     setSaving(true);
+    const payload = editHours;
     try {
-      const res = await updateAllBusinessHours(editHours);
-      if (res.data?.hours) {
-        setHours(res.data.hours);
-        toast.success('Horários salvos com sucesso!');
-      }
+      await affected.run('O novo horário de funcionamento', async (decision) => {
+        const res = await updateAllBusinessHours(payload, decision);
+        if (res.data?.hours) setHours(res.data.hours);
+        toast.success(impactMessage('Horários salvos.', res.data?.impact));
+      });
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao salvar horários');
+      toast.error(apiErrorMessage(err, 'Erro ao salvar horários'));
     } finally {
       setSaving(false);
     }
@@ -140,29 +156,41 @@ export default function SchedulePage() {
       return;
     }
     setCreatingDay(true);
+    const body = {
+      date: newDay.date,
+      title: newDay.title,
+      description: newDay.description || undefined,
+      isClosed: newDay.isClosed,
+      openTime: newDay.isClosed ? null : newDay.openTime,
+      closeTime: newDay.isClosed ? null : newDay.closeTime,
+    };
+    const day = formatDayMonthKey(body.date);
     try {
-      await createSpecialDay({
-        date: newDay.date,
-        title: newDay.title,
-        description: newDay.description || undefined,
-        isClosed: newDay.isClosed,
-        openTime: newDay.isClosed ? null : newDay.openTime,
-        closeTime: newDay.isClosed ? null : newDay.closeTime,
-      });
-      toast.success('Dia especial criado com sucesso!');
-      setShowNewDay(false);
-      setNewDay({
-        date: '',
-        title: '',
-        description: '',
-        isClosed: true,
-        openTime: '08:00',
-        closeTime: '18:00',
-      });
-      loadData();
+      await affected.run(
+        body.isClosed ? `Fechar o dia ${day}` : `O horário especial de ${day}`,
+        async (decision) => {
+          const res = await createSpecialDay(body, decision);
+          toast.success(
+            impactMessage(
+              body.isClosed ? `Dia ${day} fechado.` : 'Dia especial criado.',
+              res.data?.impact,
+              body.isClosed ? 'no dia fechado' : 'fora do horário especial',
+            ),
+          );
+          setShowNewDay(false);
+          setNewDay({
+            date: '',
+            title: '',
+            description: '',
+            isClosed: true,
+            openTime: '08:00',
+            closeTime: '18:00',
+          });
+          await loadData();
+        },
+      );
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao criar dia especial');
+      toast.error(apiErrorMessage(err, 'Erro ao criar dia especial'));
     } finally {
       setCreatingDay(false);
     }
@@ -170,15 +198,23 @@ export default function SchedulePage() {
 
   async function handleDeleteDay() {
     if (!deleteId) return;
+    const id = deleteId;
+    const target = specialDays.find((day) => day.id === id);
     setDeleting(true);
     try {
-      await deleteSpecialDay(deleteId);
-      toast.success('Dia especial excluído');
-      setDeleteId(null);
-      loadData();
+      await affected.run(
+        target
+          ? `Excluir o dia especial de ${formatDayMonthKey(target.date)}`
+          : 'Excluir o dia especial',
+        async (decision) => {
+          const res = await deleteSpecialDay(id, decision);
+          toast.success(impactMessage('Dia especial excluído.', res.data?.impact));
+          setDeleteId(null);
+          await loadData();
+        },
+      );
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao excluir');
+      toast.error(apiErrorMessage(err, 'Erro ao excluir'));
     } finally {
       setDeleting(false);
     }
@@ -197,12 +233,8 @@ export default function SchedulePage() {
 
   if (loading) return null;
 
-  const upcomingDays = specialDays.filter(
-    (d) => new Date(d.date) >= new Date(new Date().toISOString().split('T')[0]),
-  );
-  const pastDays = specialDays.filter(
-    (d) => new Date(d.date) < new Date(new Date().toISOString().split('T')[0]),
-  );
+  // UX-05: o "hoje" é o de São Paulo; pela data UTC, depois das 21h o feriado de hoje virava passado.
+  const { upcoming: upcomingDays, past: pastDays } = splitSpecialDays(specialDays, todayDateKey());
 
   return (
     <StaggerIn selector="[data-motion='enter']" className="space-y-5">
@@ -534,6 +566,8 @@ export default function SchedulePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AffectedAppointmentsDialog {...affected.dialogProps} />
 
       {/* ─── Delete Confirm Dialog ─── */}
       <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>

@@ -294,6 +294,23 @@ export function AppShell({
                     />
                     <div className="mt-auto space-y-1 px-5 pt-4">
                       <Button
+                        asChild
+                        variant="ghost"
+                        className={cn(
+                          'w-full justify-start hover:bg-white/10 hover:text-white',
+                          pathname === profileHref ? 'bg-white/10 text-white' : 'text-white/70',
+                        )}
+                      >
+                        <Link
+                          href={profileHref}
+                          onClick={() => setMobileOpen(false)}
+                          aria-current={pathname === profileHref ? 'page' : undefined}
+                        >
+                          <UserRound className="size-4" />
+                          Perfil
+                        </Link>
+                      </Button>
+                      <Button
                         variant="ghost"
                         className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
                         onClick={toggleTheme}
@@ -327,7 +344,8 @@ export function AppShell({
             </div>
 
             <div className="flex shrink-0 items-center justify-end gap-1.5">
-              <AdminThemeToggle />
+              {/* No celular o tema fica no menu lateral, para sobrar espaço para o Perfil. */}
+              <AdminThemeToggle className="hidden rounded-2xl sm:inline-flex" />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -362,6 +380,20 @@ export function AppShell({
                   <span className="hidden sm:inline">{cta.label}</span>
                 </Button>
               ) : null}
+              {/* Abaixo de lg o rail lateral some: o avatar leva ao Perfil em um toque. */}
+              <Link
+                href={profileHref}
+                aria-label="Perfil"
+                aria-current={pathname === profileHref ? 'page' : undefined}
+                className="ml-0.5 shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+              >
+                <UserAvatar
+                  name={user.name}
+                  src={user.avatarUrl}
+                  className="size-9"
+                  fallbackClassName="bg-[var(--admin-chip)] text-xs"
+                />
+              </Link>
             </div>
           </header>
 
