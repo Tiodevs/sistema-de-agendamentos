@@ -22,6 +22,7 @@
     "lint:web": "npm run lint --workspace=apps/web",
     "db:tunnel": "railway connect Postgres --tunnel-only --port 5433",
     "db:seed": "npm run db:seed --workspace=apps/api",
+    "test": "npm run test --workspace=apps/api",
     "test:e2e": "playwright test --grep-invert @gap",
     "test:e2e:auth": "playwright test auth.api auth-security.api auth-ui --grep-invert @gap",
     "test:e2e:gaps": "playwright test --grep @gap",
@@ -43,6 +44,9 @@
     "*.{ts,tsx,js,jsx,json,css,scss,md}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "postcss": "^8.5.32"
   },
   "engines": {
     "node": ">=20.0.0"

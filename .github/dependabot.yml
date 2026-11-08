@@ -1,0 +1,30 @@
+# SEC-06: PRs semanais de atualização, agrupados para não virarem dezenas de PRs soltos.
+# Correções de segurança chegam fora do agrupamento semanal, assim que o alerta sai.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 5
+    groups:
+      runtime:
+        dependency-type: production
+        update-types: [minor, patch]
+      dev:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Majors pedem migração planejada (Next 16, Express 5, Prisma 8).
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: monthly
