@@ -223,12 +223,10 @@ scheduleRouter.get('/special-days', authMiddleware, (req, res, next) =>
  *     parameters:
  *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
- *       409:
- *         $ref: '#/components/responses/AffectedAppointments'
  *       201:
  *         description: Dia especial criado
  *       409:
- *         description: Já existe dia especial nesta data
+ *         description: Já existe dia especial nesta data, ou há agendamentos afetados (code AFFECTED_APPOINTMENTS, lista em details.appointments)
  */
 scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res, next) =>
   scheduleController.createSpecialDay(req, res, next),
@@ -248,6 +246,7 @@ scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res,
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     requestBody:
  *       required: true
  *       content:
@@ -268,7 +267,6 @@ scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res,
  *                 type: string
  *               closeTime:
  *                 type: string
- *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
  *       409:
  *         $ref: '#/components/responses/AffectedAppointments'
