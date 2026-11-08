@@ -22,8 +22,24 @@ export function escapeHtml(value: string) {
     .replace(/'/g, '&#39;');
 }
 
+/** Um nome de verdade: só letras, acentos, apóstrofo e hífen. */
+const PLAIN_NAME = /^[\p{L}\p{M}'’-]{1,40}$/u;
+/** Link, domínio ou e-mail colado no campo de nome. */
+const LINK_LIKE = /:\/\/|www\.|@|\.\p{L}{2,}/iu;
+
+/**
+ * Primeiro nome para a saudação. O nome vem do cadastro livre: se não parece um nome (um
+ * domínio, um link, números), vira "cliente" para ninguém usar um e-mail da Leemia como isca.
+ */
 export function firstName(fullName: string) {
-  return fullName.trim().split(/\s+/)[0] || fullName;
+  const first = fullName.trim().split(/\s+/)[0] ?? '';
+  return PLAIN_NAME.test(first) ? first : 'cliente';
+}
+
+/** Nome completo para mostrar num e-mail. Um nome com cara de link vira "Cliente". */
+export function displayName(fullName: string) {
+  const value = fullName.trim();
+  return value && !LINK_LIKE.test(value) ? value : 'Cliente';
 }
 
 export function formatCurrency(value: number) {

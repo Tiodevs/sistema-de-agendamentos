@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 import { authMiddleware } from '../middlewares/auth.middleware';
-import { rateLimitByIp } from '../middlewares/rate-limit.middleware';
+import { rateLimitByIp, rateLimitByUser } from '../middlewares/rate-limit.middleware';
 import { handleAvatarUpload } from '../middlewares/upload.middleware';
 
 const authRouter = Router();
@@ -31,7 +31,7 @@ const authController = new AuthController();
  *         password:
  *           type: string
  *           minLength: 8
- *           example: "Senha@123"
+ *           example: "Exemplo@Forte1"
  *         phone:
  *           type: string
  *           example: "(11) 99999-9999"
@@ -47,7 +47,7 @@ const authController = new AuthController();
  *           example: "joao@email.com"
  *         password:
  *           type: string
- *           example: "Senha@123"
+ *           example: "Exemplo@Forte1"
  *     AuthResponse:
  *       type: object
  *       properties:
@@ -278,6 +278,30 @@ authRouter.post(
   '/confirm-email',
   rateLimitByIp('confirm-email', 20, 60 * 60 * 1000),
   (req, res, next) => authController.confirmEmail(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/verify-email/resend:
+ *   post:
+ *     summary: Reenviar o link de confirmação do e-mail do cadastro
+ *     description: Sem o e-mail confirmado, o cliente não reserva horários. Até 3 pedidos por hora.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Link reenviado (ou e-mail já confirmado)
+ *       401:
+ *         description: Não autenticado
+ *       429:
+ *         description: Muitas tentativas
+ */
+authRouter.post(
+  '/verify-email/resend',
+  authMiddleware,
+  rateLimitByUser('verify-email-resend', 3, 60 * 60 * 1000),
+  (req, res, next) => authController.resendEmailVerification(req, res, next),
 );
 
 /**

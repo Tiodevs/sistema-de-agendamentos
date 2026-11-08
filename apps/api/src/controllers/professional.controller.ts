@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ProfessionalService } from '../services/professional.service';
 import { ProfessionalRequest } from '../middlewares/professional.middleware';
 import { DASHBOARD_PERIODS, type DashboardPeriod } from '../services/dashboard.service';
+import { professionalAppointmentsQuerySchema } from '../schemas/appointment.schema';
 
 const professionalService = new ProfessionalService();
 
@@ -34,13 +35,9 @@ export class ProfessionalController {
   async getAppointments(req: Request, res: Response, next: NextFunction) {
     try {
       const employeeId = (req as ProfessionalRequest).employeeId;
-      const { from, to, status } = req.query;
-
-      const appointments = await professionalService.getAppointments(employeeId, {
-        from: from as string | undefined,
-        to: to as string | undefined,
-        status: status as string | undefined,
-      });
+      // Filtro inválido vira ZodError, e o errorHandler responde 400.
+      const filters = professionalAppointmentsQuerySchema.parse(req.query);
+      const appointments = await professionalService.getAppointments(employeeId, filters);
 
       res.json({
         status: 'success',

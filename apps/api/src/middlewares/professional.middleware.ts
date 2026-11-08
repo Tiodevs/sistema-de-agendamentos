@@ -17,28 +17,32 @@ export const professionalMiddleware = async (req: Request, res: Response, next: 
     return;
   }
 
-  // Buscar employee vinculado ao user
-  const employee = await prisma.employee.findUnique({
-    where: { userId: user.id },
-    select: { id: true, active: true },
-  });
-
-  if (!employee) {
-    res.status(403).json({
-      status: 'error',
-      message: 'Acesso restrito a profissionais vinculados',
+  // No Express 4, uma promise rejeitada aqui derrubaria o processo: o erro vai para o errorHandler.
+  try {
+    const employee = await prisma.employee.findUnique({
+      where: { userId: user.id },
+      select: { id: true, active: true },
     });
-    return;
-  }
 
-  if (!employee.active) {
-    res.status(403).json({
-      status: 'error',
-      message: 'Conta de profissional desativada',
-    });
-    return;
-  }
+    if (!employee) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Acesso restrito a profissionais vinculados',
+      });
+      return;
+    }
 
-  (req as ProfessionalRequest).employeeId = employee.id;
-  next();
+    if (!employee.active) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Conta de profissional desativada',
+      });
+      return;
+    }
+
+    (req as ProfessionalRequest).employeeId = employee.id;
+    next();
+  } catch (error) {
+    next(error);
+  }
 };

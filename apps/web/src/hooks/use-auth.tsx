@@ -36,6 +36,8 @@ function toUser(value: User): User {
     employeeId: extra.employeeId ?? extra.employee?.id ?? null,
     avatarUrl: extra.avatarUrl ?? null,
     pendingEmail: extra.pendingEmail ?? null,
+    // Sessão salva antes do campo existir: assume confirmado até o /me responder.
+    emailVerified: extra.emailVerified ?? true,
     createdAt: extra.createdAt,
   };
 }

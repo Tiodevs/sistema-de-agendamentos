@@ -56,21 +56,28 @@ export function BookingDatePicker({
   value,
   onChange,
   isDateDisabled,
+  maxDateKey,
 }: {
   value: string;
   onChange: (dateKey: string) => void;
   isDateDisabled?: (dateKey: string) => boolean;
+  /** Último dia escolhível (`YYYY-MM-DD`). Sem ele, o limite é de 24 meses. */
+  maxDateKey?: string;
 }) {
   const todayKey = todayDateKey();
   const today = parseDateKey(todayKey);
   const minMonthValue = monthValue(today.year, today.month - 1);
-  const maxParts = addMonths(today.year, today.month - 1, MAX_MONTHS_AHEAD);
+  const fallbackMax = addMonths(today.year, today.month - 1, MAX_MONTHS_AHEAD);
+  const maxKey =
+    maxDateKey ??
+    civilKey(
+      fallbackMax.year,
+      fallbackMax.monthIndex,
+      daysInMonth(fallbackMax.year, fallbackMax.monthIndex),
+    );
+  const maxDate = parseDateKey(maxKey);
+  const maxParts = { year: maxDate.year, monthIndex: maxDate.month - 1 };
   const maxMonthValue = monthValue(maxParts.year, maxParts.monthIndex);
-  const maxKey = civilKey(
-    maxParts.year,
-    maxParts.monthIndex,
-    daysInMonth(maxParts.year, maxParts.monthIndex),
-  );
   const years = useMemo(() => {
     const list: number[] = [];
     for (let year = today.year; year <= maxParts.year; year += 1) {

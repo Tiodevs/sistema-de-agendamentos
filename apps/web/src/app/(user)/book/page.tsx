@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
+  ApiError,
   getProducts,
   getEmployees,
   getAvailableSlots,
@@ -38,6 +39,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { EmailVerificationNotice } from '@/components/user/email-verification-notice';
+import { useAuth } from '@/hooks/use-auth';
+import { lastBookableDateKey } from '@/lib/booking-rules';
 import { isClosedDate, nextOpenDateKey, todayDateKey } from '@/lib/datetime';
 
 type Step = 1 | 2 | 3;
@@ -63,6 +67,7 @@ function formatDateBR(dateStr: string): string {
 
 export default function BookPage() {
   const router = useRouter();
+  const { refreshUser } = useAuth();
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -231,6 +236,10 @@ export default function BookPage() {
       toast.success('Agendamento realizado com sucesso');
       router.push('/appointments');
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
+        // Atualiza a sessão para o aviso de confirmação aparecer no topo.
+        void refreshUser();
+      }
       const error = err as { message?: string };
       toast.error(error.message || 'Erro ao criar agendamento');
     } finally {
@@ -252,6 +261,8 @@ export default function BookPage() {
           description="Escolha o serviço, o profissional e o horário."
         />
       </div>
+
+      <EmailVerificationNotice />
 
       <div data-motion="enter" className="admin-surface flex items-center px-3 py-2">
         {([1, 2, 3] as Step[]).map((s) => (
@@ -425,6 +436,7 @@ export default function BookPage() {
                 <BookingDatePicker
                   value={selectedDate}
                   onChange={setSelectedDate}
+                  maxDateKey={lastBookableDateKey()}
                   isDateDisabled={(dateKey) =>
                     isClosedDate(dateKey, hours, specialDays, employeeHours, employeeSpecialDays)
                   }

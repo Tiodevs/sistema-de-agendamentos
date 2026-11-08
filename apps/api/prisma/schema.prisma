@@ -18,6 +18,8 @@ model User {
   avatar            String?
   role              String    @default("USER")
   active            Boolean   @default(true)
+  /// Preenchido quando o dono confirma o e-mail pelo link. Sem ele, o cliente não reserva.
+  emailVerifiedAt   DateTime?
   passwordChangedAt DateTime?
   tokenVersion      Int       @default(0)
   createdAt         DateTime  @default(now())

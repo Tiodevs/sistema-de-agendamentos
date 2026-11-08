@@ -18,6 +18,8 @@ export default function ConfirmEmailPage() {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [done, setDone] = useState(false);
+  /** `true` quando o link era de troca de e-mail; `false` quando confirmou o e-mail do cadastro. */
+  const [changed, setChanged] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,7 +40,8 @@ export default function ConfirmEmailPage() {
     setIsLoading(true);
     setError(null);
     try {
-      await confirmEmailChange(token);
+      const response = await confirmEmailChange(token);
+      setChanged(Boolean(response.data?.changed));
       if (isAuthenticated) {
         try {
           await refreshUser();
@@ -73,7 +76,8 @@ export default function ConfirmEmailPage() {
           <LogoWithText logoSize={40} textClassName="text-2xl font-semibold tracking-tight" />
           <h1 className="mt-6 text-2xl font-semibold tracking-tight">Link inválido</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Este link de confirmação está incompleto ou já foi usado. Peça uma nova troca no perfil.
+            Este link de confirmação está incompleto ou já foi usado. Peça um novo: na tela de
+            agendamento, para confirmar o cadastro, ou no perfil, para trocar de e-mail.
           </p>
         </div>
         <p className="mt-8 text-center text-sm text-muted-foreground">
@@ -94,8 +98,10 @@ export default function ConfirmEmailPage() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {done
-            ? 'O novo endereço já vale para entrar na conta.'
-            : 'Confirme para passar a usar o novo e-mail nesta conta.'}
+            ? changed
+              ? 'O novo endereço já vale para entrar na conta.'
+              : 'Pronto. Você já pode agendar seus horários.'
+            : 'Confirme que este endereço de e-mail é seu.'}
         </p>
       </div>
 
@@ -108,9 +114,13 @@ export default function ConfirmEmailPage() {
       <div className="mt-8 space-y-3">
         {done ? (
           <Button asChild className="w-full rounded-full">
-            <Link href={isAuthenticated ? '/profile' : '/login'}>
-              {isAuthenticated ? 'Ir ao perfil' : 'Entrar'}
-            </Link>
+            {!isAuthenticated ? (
+              <Link href="/login">Entrar</Link>
+            ) : changed ? (
+              <Link href="/profile">Ir ao perfil</Link>
+            ) : (
+              <Link href="/book">Agendar agora</Link>
+            )}
           </Button>
         ) : (
           <Button

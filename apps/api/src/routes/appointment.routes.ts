@@ -166,7 +166,10 @@ appointmentRouter.get('/my', authMiddleware, (req, res, next) =>
  * /api/appointments/book:
  *   post:
  *     summary: Agendar (Usuário)
- *     description: Permite que o usuário autenticado crie um agendamento para si mesmo.
+ *     description: >
+ *       Permite que o usuário autenticado crie um agendamento para si mesmo. Exige e-mail
+ *       confirmado, aceita até 3 agendamentos futuros por cliente e até 60 dias de antecedência.
+ *       Limite de 30 pedidos por hora por usuário.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -196,14 +199,18 @@ appointmentRouter.get('/my', authMiddleware, (req, res, next) =>
  *       201:
  *         description: Agendamento criado com sucesso
  *       400:
- *         description: Dados inválidos
+ *         description: Dados inválidos ou além da antecedência máxima (code BOOKING_TOO_FAR)
+ *       403:
+ *         description: E-mail não confirmado (code EMAIL_NOT_VERIFIED)
  *       409:
- *         description: Conflito de horário
+ *         description: Conflito de horário ou teto de agendamentos futuros (code BOOKING_LIMIT_REACHED)
+ *       429:
+ *         description: Muitas tentativas
  */
 appointmentRouter.post(
   '/book',
   authMiddleware,
-  rateLimitByUser('book', 80, 15 * 60 * 1000),
+  rateLimitByUser('book', 30, 60 * 60 * 1000),
   (req, res, next) => appointmentController.createForUser(req, res, next),
 );
 

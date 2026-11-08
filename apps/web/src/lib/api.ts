@@ -3,6 +3,8 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 interface ApiResponse<T> {
   status: 'success' | 'error';
   message?: string;
+  /** Identificador estável do erro, por exemplo `EMAIL_NOT_VERIFIED`. */
+  code?: string;
   data?: T;
   errors?: Array<{ field: string; message: string }>;
 }
@@ -17,6 +19,8 @@ export interface AuthData {
     employeeId: string | null;
     avatarUrl: string | null;
     pendingEmail?: string | null;
+    /** Sem e-mail confirmado, o cliente não reserva. Ausente em sessões antigas. */
+    emailVerified?: boolean;
     createdAt: string;
   };
   token: string;
@@ -25,17 +29,20 @@ export interface AuthData {
 export class ApiError extends Error {
   statusCode: number;
   status: 'error';
+  code?: string;
   errors?: Array<{ field: string; message: string }>;
 
   constructor(
     statusCode: number,
     message: string,
     errors?: Array<{ field: string; message: string }>,
+    code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.status = 'error';
+    this.code = code;
     this.errors = errors;
   }
 }
@@ -63,7 +70,12 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, data.message || 'Erro na requisição', data.errors);
+    throw new ApiError(
+      response.status,
+      data.message || 'Erro na requisição',
+      data.errors,
+      data.code,
+    );
   }
 
   return data;
@@ -114,10 +126,21 @@ export async function resetPassword(body: {
   });
 }
 
-export async function confirmEmailChange(token: string): Promise<ApiResponse<void>> {
+/** Confirma o e-mail pelo link: o do cadastro (`changed: false`) ou um novo pedido no perfil. */
+export async function confirmEmailChange(
+  token: string,
+): Promise<ApiResponse<{ changed: boolean }>> {
   return apiRequest('/api/auth/confirm-email', {
     method: 'POST',
     body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendEmailVerification(): Promise<
+  ApiResponse<{ alreadyVerified: boolean }>
+> {
+  return apiRequest('/api/auth/verify-email/resend', {
+    method: 'POST',
   });
 }
 

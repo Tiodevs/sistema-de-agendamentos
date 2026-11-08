@@ -5,6 +5,7 @@ import {
   mapClientAvatar,
 } from '../lib/appointment-map';
 import { DashboardService, DASHBOARD_PERIODS, type DashboardPeriod } from './dashboard.service';
+import type { ProfessionalAppointmentFilters } from '../schemas/appointment.schema';
 
 const dashboardService = new DashboardService();
 
@@ -52,17 +53,16 @@ export class ProfessionalService {
     };
   }
 
-  async getAppointments(
-    employeeId: string,
-    filters?: { from?: string; to?: string; status?: string },
-  ) {
+  /** Os filtros chegam validados pelo `professionalAppointmentsQuerySchema`. */
+  async getAppointments(employeeId: string, filters?: ProfessionalAppointmentFilters) {
     const where: Record<string, unknown> = { employeeId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.from || filters?.to) {
-      where.date = {};
-      if (filters.from) (where.date as Record<string, unknown>).gte = new Date(filters.from);
-      if (filters.to) (where.date as Record<string, unknown>).lte = new Date(filters.to);
+      where.date = {
+        ...(filters.from && { gte: filters.from }),
+        ...(filters.to && { lte: filters.to }),
+      };
     }
 
     const appointments = await prisma.appointment.findMany({

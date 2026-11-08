@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { EmailVerificationNotice } from '@/components/user/email-verification-notice';
 
 const TIME_ZONE = 'America/Sao_Paulo';
 
@@ -355,6 +356,7 @@ export function UserHomePage() {
       className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
     >
       <div className="space-y-4">
+        <EmailVerificationNotice />
         <section data-motion="enter" className="admin-surface p-4 sm:p-6">
           <p className="text-sm text-muted-foreground">{greeting}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-[1.75rem]">

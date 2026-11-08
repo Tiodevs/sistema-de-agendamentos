@@ -8,9 +8,22 @@ import { getInlineAttachments } from '../emails/assets';
 import { professionalNewAppointmentEmail } from '../emails/professional-new-appointment';
 import { emailChangeConfirmEmail } from '../emails/email-change-confirm';
 import { emailChangeNoticeEmail } from '../emails/email-change-notice';
+import { emailVerificationEmail } from '../emails/email-verification';
 import { passwordChangedEmail } from '../emails/password-changed';
 import { passwordResetEmail } from '../emails/password-reset';
 import { welcomeEmail } from '../emails/welcome';
+import { consumeRateLimit } from '../lib/rate-limit';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Teto de e-mails por destinatário em 24h (SEC-02). Protege a caixa de terceiros e a cota do
+ * Resend quando alguém cadastra o e-mail de outra pessoa ou repete reservas e cancelamentos.
+ */
+const DAILY_LIMIT_PER_RECIPIENT = 50;
+const DAILY_LIMIT_BY_TYPE: Record<string, number> = {
+  'email-verification': 5,
+  'password-reset': 10,
+};
 
 export interface AppointmentMailInput {
   id: string;
@@ -153,6 +166,24 @@ class EmailService {
     });
   }
 
+  async sendEmailVerification(input: {
+    id: string;
+    name: string;
+    email: string;
+    confirmUrl: string;
+    tokenId: string;
+  }) {
+    const content = emailVerificationEmail(input.name, input.confirmUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `email-verification/${input.tokenId}`,
+      tags: [{ name: 'type', value: 'email-verification' }],
+    });
+  }
+
   async sendEmailChangeNotice(input: {
     id: string;
     name: string;
@@ -189,6 +220,12 @@ class EmailService {
       return;
     }
 
+    const type = input.tags.find((tag) => tag.name === 'type')?.value ?? 'other';
+    if (!this.withinDailyLimit(input.to, type)) {
+      console.warn(`[email] limite diário de ${type} atingido para ${input.to}: envio ignorado`);
+      return;
+    }
+
     const attachments = getInlineAttachments();
     const { data, error } = await this.resend.emails.send(
       {
@@ -214,6 +251,15 @@ class EmailService {
     const domain = email.split('@')[1]?.toLowerCase();
     if (!domain) return false;
     return !['leemia.dev'].includes(domain);
+  }
+
+  private withinDailyLimit(to: string, type: string) {
+    const recipient = to.trim().toLowerCase();
+    const typeLimit = DAILY_LIMIT_BY_TYPE[type];
+    if (typeLimit && !consumeRateLimit(`email-to:${type}:${recipient}`, typeLimit, DAY_MS)) {
+      return false;
+    }
+    return consumeRateLimit(`email-to:${recipient}`, DAILY_LIMIT_PER_RECIPIENT, DAY_MS);
   }
 }
 
@@ -268,6 +314,16 @@ export function notifyEmailChangeConfirm(input: {
   tokenId: string;
 }) {
   dispatch('email-change-confirm', () => emailService.sendEmailChangeConfirm(input));
+}
+
+export function notifyEmailVerification(input: {
+  id: string;
+  name: string;
+  email: string;
+  confirmUrl: string;
+  tokenId: string;
+}) {
+  dispatch('email-verification', () => emailService.sendEmailVerification(input));
 }
 
 export function notifyEmailChangeNotice(input: {

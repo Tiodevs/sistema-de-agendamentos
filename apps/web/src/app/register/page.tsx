@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { homePathForUser, useAuth } from '@/hooks/use-auth';
 import { registerUser } from '@/lib/api';
+import { toast } from 'sonner';
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -65,6 +66,7 @@ export default function RegisterPage() {
 
       if (response.data) {
         login(response.data.user, response.data.token);
+        toast.success('Conta criada. Enviamos um link para confirmar seu e-mail.');
         router.push('/');
       }
     } catch (err: unknown) {

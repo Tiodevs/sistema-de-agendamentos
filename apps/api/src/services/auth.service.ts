@@ -12,6 +12,7 @@ import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import {
   notifyEmailChangeConfirm,
   notifyEmailChangeNotice,
+  notifyEmailVerification,
   notifyPasswordChanged,
   notifyPasswordReset,
   notifyWelcome,
@@ -23,13 +24,15 @@ import { signAccessToken } from '../lib/jwt';
 import {
   createPasswordResetToken,
   EMAIL_CHANGE_TTL_MS,
+  EMAIL_VERIFICATION_TTL_MS,
   hashPasswordResetToken,
   PASSWORD_RESET_TTL_MS,
 } from '../lib/password-reset-token';
 import {
   clearLoginFailures,
   consumeRateLimit,
-  isLoginLocked,
+  loginLockedError,
+  loginLockedUntil,
   registerLoginFailure,
   waitAtLeast,
 } from '../lib/rate-limit';
@@ -55,6 +58,7 @@ const profileSelect = {
   avatar: true,
   role: true,
   active: true,
+  emailVerifiedAt: true,
   createdAt: true,
   updatedAt: true,
   tokenVersion: true,
@@ -69,6 +73,7 @@ type ProfileRecord = {
   avatar: string | null;
   role: string;
   active?: boolean;
+  emailVerifiedAt?: Date | null;
   createdAt: Date;
   updatedAt?: Date;
   tokenVersion?: number;
@@ -96,6 +101,7 @@ function toPublicUser(user: ProfileRecord, pendingEmail: string | null = null) {
     employeeId,
     avatarUrl: userAvatarUrl(user.id, user.avatar, user.updatedAt),
     pendingEmail,
+    emailVerified: Boolean(user.emailVerifiedAt),
     createdAt: user.createdAt,
   };
 }
@@ -227,13 +233,41 @@ function buildClientStats(
   };
 }
 
-async function getPendingEmail(userId: string) {
+/** E-mail novo aguardando confirmação. A confirmação do próprio e-mail do cadastro não conta como troca. */
+async function getPendingEmail(userId: string, currentEmail: string) {
   const pending = await prisma.emailChangeToken.findFirst({
     where: { userId, usedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
     select: { newEmail: true },
   });
-  return pending?.newEmail ?? null;
+  if (!pending || pending.newEmail === currentEmail.trim().toLowerCase()) return null;
+  return pending.newEmail;
+}
+
+/**
+ * Gera o link que confirma `email` para a conta e invalida os anteriores. Serve tanto para a
+ * confirmação do cadastro (mesmo e-mail) quanto para a troca de e-mail no perfil.
+ */
+async function issueEmailConfirmation(userId: string, email: string, ttlMs: number) {
+  const { token, tokenHash } = createPasswordResetToken();
+  const expiresAt = new Date(Date.now() + ttlMs);
+  const now = new Date();
+
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.emailChangeToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: now },
+    });
+    return tx.emailChangeToken.create({
+      data: { userId, newEmail: email, tokenHash, expiresAt },
+      select: { id: true },
+    });
+  });
+
+  return {
+    tokenId: created.id,
+    confirmUrl: `${appUrl()}/confirm-email#token=${encodeURIComponent(token)}`,
+  };
 }
 
 async function assertEmailAvailable(email: string, userId: string, employeeId?: string | null) {
@@ -297,10 +331,18 @@ export class AuthService {
 
     const token = generateToken(user);
 
-    notifyWelcome({
+    // A conta já entra, mas só reserva depois de confirmar o e-mail (SEC-02). As boas-vindas
+    // vão depois da confirmação.
+    const verification = await issueEmailConfirmation(
+      user.id,
+      user.email,
+      EMAIL_VERIFICATION_TTL_MS,
+    );
+    notifyEmailVerification({
       id: user.id,
       name: user.name,
       email: user.email,
+      ...verification,
     });
 
     return {
@@ -309,27 +351,63 @@ export class AuthService {
     };
   }
 
+  /** Reenvia o link de confirmação do e-mail do cadastro. */
+  async resendEmailVerification(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, active: true, emailVerifiedAt: true },
+    });
+
+    if (!user?.active) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    if (user.emailVerifiedAt) {
+      return { alreadyVerified: true };
+    }
+
+    const verification = await issueEmailConfirmation(
+      user.id,
+      user.email,
+      EMAIL_VERIFICATION_TTL_MS,
+    );
+    notifyEmailVerification({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      ...verification,
+    });
+
+    return { alreadyVerified: false };
+  }
+
   async login(data: LoginInput, ip = 'unknown') {
+    // O bloqueio é do par e-mail + IP: quem erra a senha de outro lugar não tranca o dono da conta.
+    const lockedUntil = loginLockedUntil(data.email, ip);
+    if (lockedUntil) {
+      throw loginLockedError(lockedUntil);
+    }
+
     const user = await prisma.user.findUnique({
       where: { email: data.email },
       select: { ...profileSelect, password: true },
     });
 
     const passwordOk = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
-    const locked = isLoginLocked(data.email);
     const valid = Boolean(user?.active && passwordOk);
 
-    if (locked || !valid || !user) {
-      if (!locked) {
-        registerLoginFailure(data.email);
-        if (!consumeRateLimit(`login-fail:${ip}`, LOGIN_FAIL_IP_LIMIT, LOGIN_FAIL_IP_WINDOW_MS)) {
-          throw httpError('Muitas tentativas. Tente novamente em instantes.', 429);
-        }
+    if (!valid || !user) {
+      const lockedNow = registerLoginFailure(data.email, ip);
+      if (!consumeRateLimit(`login-fail:${ip}`, LOGIN_FAIL_IP_LIMIT, LOGIN_FAIL_IP_WINDOW_MS)) {
+        throw httpError('Muitas tentativas. Tente novamente em instantes.', 429);
+      }
+      if (lockedNow) {
+        throw loginLockedError(lockedNow);
       }
       throw httpError(INVALID_LOGIN_MESSAGE, 401);
     }
 
-    clearLoginFailures(data.email);
+    clearLoginFailures(data.email, ip);
     const { password: _password, ...safeUser } = user;
 
     return {
@@ -355,7 +433,7 @@ export class AuthService {
       throw httpError('Usuário não encontrado', 404);
     }
 
-    return toPublicUser(user, await getPendingEmail(userId));
+    return toPublicUser(user, await getPendingEmail(userId, user.email));
   }
 
   async updateProfile(userId: string, data: UpdateProfileInput) {
@@ -389,32 +467,21 @@ export class AuthService {
       phone,
     });
 
-    let pendingEmail = await getPendingEmail(userId);
+    let pendingEmail = await getPendingEmail(userId, user.email);
 
     if (emailChanged) {
-      const { token, tokenHash } = createPasswordResetToken();
-      const expiresAt = new Date(Date.now() + EMAIL_CHANGE_TTL_MS);
-      const now = new Date();
-
-      const created = await prisma.$transaction(async (tx) => {
-        await tx.emailChangeToken.updateMany({
-          where: { userId, usedAt: null },
-          data: { usedAt: now },
-        });
-        return tx.emailChangeToken.create({
-          data: { userId, newEmail: data.email, tokenHash, expiresAt },
-          select: { id: true },
-        });
-      });
-
+      const { tokenId, confirmUrl } = await issueEmailConfirmation(
+        userId,
+        data.email,
+        EMAIL_CHANGE_TTL_MS,
+      );
       pendingEmail = data.email;
-      const confirmUrl = `${appUrl()}/confirm-email#token=${encodeURIComponent(token)}`;
 
       notifyEmailChangeConfirm({
         id: user.id,
         name: user.name,
         email: data.email,
-        tokenId: created.id,
+        tokenId,
         confirmUrl,
       });
       notifyEmailChangeNotice({
@@ -422,13 +489,17 @@ export class AuthService {
         name: user.name,
         email: current.email,
         newEmail: data.email,
-        tokenId: created.id,
+        tokenId,
       });
     }
 
     return toPublicUser(user, pendingEmail);
   }
 
+  /**
+   * Consome o link e confirma o e-mail: o do cadastro (mesmo endereço) ou um novo pedido no
+   * perfil. Nos dois casos, quem abriu o link provou ser dono do endereço.
+   */
   async confirmEmailChange(token: string) {
     const tokenHash = hashPasswordResetToken(token);
     const record = await prisma.emailChangeToken.findUnique({
@@ -440,7 +511,14 @@ export class AuthService {
         expiresAt: true,
         usedAt: true,
         user: {
-          select: { id: true, active: true, employee: { select: { id: true } } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            active: true,
+            emailVerifiedAt: true,
+            employee: { select: { id: true } },
+          },
         },
       },
     });
@@ -464,7 +542,7 @@ export class AuthService {
 
       await tx.user.update({
         where: { id: record.userId },
-        data: { email: record.newEmail },
+        data: { email: record.newEmail, emailVerifiedAt: now },
       });
 
       await tx.emailChangeToken.updateMany({
@@ -474,6 +552,13 @@ export class AuthService {
     });
 
     await syncLinkedEmployee(record.userId, { email: record.newEmail });
+
+    const changed = record.newEmail !== record.user.email.trim().toLowerCase();
+    if (!record.user.emailVerifiedAt) {
+      notifyWelcome({ id: record.user.id, name: record.user.name, email: record.newEmail });
+    }
+
+    return { changed };
   }
 
   async updateAvatar(
@@ -496,7 +581,7 @@ export class AuthService {
       select: profileSelect,
     });
 
-    const publicUser = toPublicUser(user, await getPendingEmail(userId));
+    const publicUser = toPublicUser(user, await getPendingEmail(userId, user.email));
     await syncLinkedEmployee(userId, { avatarUrl: publicUser.avatarUrl });
 
     if (current.avatar && current.avatar !== key) {
@@ -519,7 +604,7 @@ export class AuthService {
     }
 
     if (!current.avatar) {
-      return toPublicUser(current, await getPendingEmail(userId));
+      return toPublicUser(current, await getPendingEmail(userId, current.email));
     }
 
     const user = await prisma.user.update({
@@ -533,7 +618,7 @@ export class AuthService {
       console.error('[storage] falha ao remover avatar', error);
     });
 
-    return toPublicUser(user, await getPendingEmail(userId));
+    return toPublicUser(user, await getPendingEmail(userId, user.email));
   }
 
   async getAvatarFile(userId: string) {
@@ -674,7 +759,16 @@ export class AuthService {
         userId: true,
         expiresAt: true,
         usedAt: true,
-        user: { select: { id: true, name: true, email: true, active: true, password: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            active: true,
+            password: true,
+            emailVerifiedAt: true,
+          },
+        },
       },
     });
 
@@ -706,6 +800,8 @@ export class AuthService {
           password: hashedPassword,
           passwordChangedAt,
           tokenVersion: { increment: 1 },
+          // O link chegou nesse e-mail: a pessoa provou que é dona dele.
+          ...(!record.user.emailVerifiedAt && { emailVerifiedAt: passwordChangedAt }),
         },
       });
 
@@ -714,6 +810,9 @@ export class AuthService {
         data: { usedAt: passwordChangedAt },
       });
     });
+
+    // Quem provou ser dono do e-mail volta a entrar na hora, de qualquer IP.
+    clearLoginFailures(record.user.email);
 
     notifyPasswordChanged({
       id: record.user.id,
@@ -783,7 +882,7 @@ export class AuthService {
     });
 
     return {
-      user: toPublicUser(updated, await getPendingEmail(userId)),
+      user: toPublicUser(updated, await getPendingEmail(userId, updated.email)),
       token: generateToken(updated),
     };
   }

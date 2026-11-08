@@ -5,6 +5,8 @@ import {
   createAppointmentSchema,
   updateAppointmentStatusSchema,
   availabilitySlotsSchema,
+  listAppointmentsQuerySchema,
+  myAppointmentsQuerySchema,
 } from '../schemas/appointment.schema';
 import { z } from 'zod';
 
@@ -20,14 +22,9 @@ function formatZodErrors(error: z.ZodError) {
 export class AppointmentController {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
-      const { employeeId, clientId, status, from, to } = req.query;
-      const appointments = await appointmentService.findAll({
-        employeeId: employeeId as string | undefined,
-        clientId: clientId as string | undefined,
-        status: status as string | undefined,
-        from: from as string | undefined,
-        to: to as string | undefined,
-      });
+      // Filtro inválido vira ZodError, e o errorHandler responde 400.
+      const filters = listAppointmentsQuerySchema.parse(req.query);
+      const appointments = await appointmentService.findAll(filters);
 
       res.status(200).json({
         status: 'success',
@@ -42,10 +39,10 @@ export class AppointmentController {
   async findMyAppointments(req: Request, res: Response, next: NextFunction) {
     try {
       const authReq = req as AuthenticatedRequest;
-      const { status } = req.query;
+      const { status } = myAppointmentsQuerySchema.parse(req.query);
       const appointments = await appointmentService.findAll({
         clientId: authReq.user.id,
-        status: status as string | undefined,
+        status,
       });
 
       res.status(200).json({
@@ -119,7 +116,7 @@ export class AppointmentController {
 
       const body = { ...req.body, clientId: authReq.user.id };
       const data = createAppointmentSchema.parse(body);
-      const appointment = await appointmentService.create(data);
+      const appointment = await appointmentService.create(data, { selfService: true });
 
       res.status(201).json({
         status: 'success',
