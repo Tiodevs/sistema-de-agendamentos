@@ -45,5 +45,3 @@ export const ADMIN = {
   email: process.env.E2E_ADMIN_EMAIL || 'admin@leemia.dev',
   password: process.env.E2E_ADMIN_PASSWORD || process.env.SEED_PASSWORD || '',
 };
-
-export const INTRO_STORAGE_KEY = 'leemia-intro-v1';

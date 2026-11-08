@@ -49,6 +49,7 @@ services:
       PUBLIC_API_URL: http://localhost:${API_PORT:-3001}
       SWAGGER_ENABLED: 'true'
       TRUST_PROXY: 'false'
+      CANCELLATION_NOTICE_HOURS: ${CANCELLATION_NOTICE_HOURS:-2}
       # Opcionais: vazios, e-mail só vai para o log e upload de foto responde 503.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}

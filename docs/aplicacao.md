@@ -37,22 +37,27 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Preço congelado no momento da reserva (cópia do preço do produto).
 - E-mail de confirmação ao cliente e aviso ao profissional na criação do agendamento.
 - Lista “Meus horários”.
-- Cancelamento apenas dos próprios agendamentos futuros em `SCHEDULED`/`CONFIRMED` (dispara e-mail de cancelamento).
+- Cancelamento apenas dos próprios agendamentos em `SCHEDULED`/`CONFIRMED`, até a antecedência mínima (`CANCELLATION_NOTICE_HOURS`, padrão 2 h). Cada agendamento traz `cancellableUntil`; depois do prazo, só o estúdio cancela. Cancelar avisa o cliente e o profissional por e-mail.
 - Layout mobile-first (nav inferior, largura máx. ~`lg`).
 
 ### Área administrativa
 
 - Dashboard: produtos/funcionários ativos, clientes, agenda do mês, receita, variação vs mês anterior, agenda de hoje, breakdown por status, top serviços e top profissionais, últimos agendamentos.
 - CRUD de produtos/serviços (nome, descrição, preço, duração em minutos).
-- Ativar/desativar produto sem apagar histórico.
-- CRUD de funcionários (nome, e-mail, telefone, avatar).
-- Ativar/desativar funcionário.
-- Vincular funcionário a um `User` existente **pelo mesmo e-mail**; nesse caso o `role` vira `EMPLOYEE`.
+- Ativar/desativar produto sem apagar histórico. Serviço com agendamentos no histórico não é excluído (`409 HAS_APPOINTMENTS`): o caminho é desativar.
+- CRUD de funcionários (nome, e-mail, telefone, avatar). Profissional com histórico não é excluído (`409 HAS_APPOINTMENTS`).
+- Ativar/desativar funcionário. Desativar quem tem horários futuros pede decisão (ver “Mudanças que afetam a agenda”).
+- Acesso ao painel do profissional por **convite**: cadastrar o profissional envia um link (7 dias) ao e-mail dele e não liga nem promove nenhuma conta. O vínculo só acontece em `/accept-invite`, quando o dono do e-mail aceita: entrando na conta que já tem (com a senha dela) ou criando a senha. O admin vê o estado do acesso (com acesso, convite pendente, expirado, sem acesso), reenvia o convite (`POST /api/employees/{id}/invite`) e remove o acesso (`DELETE /api/employees/{id}/access`, que devolve a conta ao papel `USER`).
 - Atribuir quais serviços cada profissional realiza (`employee_products`).
-- Agenda geral: filtrar, criar agendamento para qualquer cliente, mudar status, excluir.
-- Configurar expediente por dia da semana (abre/fecha ou fechado).
+- Agenda geral: filtrar, criar agendamento para qualquer cliente e mudar status pela máquina de estados (o menu mostra só `allowedStatuses`; cancelar e registrar falta pedem confirmação; “Desfazer” por 10 minutos). Agendamentos não são excluídos (`DELETE` responde `409 APPOINTMENT_DELETE_DISABLED`): o caminho é cancelar.
+- Configurar expediente por dia da semana (abre/fecha ou fechado). A semana é gravada numa transação só. O expediente padrão é criado pela migration; o `GET` não grava nada.
 - Dias especiais / feriados (fechado ou horário alternativo).
 - Personalizar expediente e folgas por profissional (o padrão é o do estabelecimento; feriado do estúdio continua valendo para todos).
+
+### Mudanças que afetam a agenda
+
+Fechar um dia, criar horário especial, mudar o expediente (do estúdio ou do profissional), voltar ao horário do estúdio, remover um dia especial ou desativar um profissional olham os agendamentos marcados ou confirmados que ficariam sem atendimento. Sem decisão, a API responde `409 AFFECTED_APPOINTMENTS` com a lista em `details.appointments` e não salva nada. A tela mostra os afetados e repete o pedido com `?onAffected=keep` (salva e mantém) ou `?onAffected=cancel` (salva, cancela na mesma transação e avisa cada cliente por e-mail, com o motivo). A resposta traz `impact: { affected, cancelled }`.
+
 - Layout com sidebar (desktop) e sheet (mobile).
 
 ### Área do profissional
@@ -60,7 +65,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Acesso só se existir `Employee` com `userId` = usuário logado e `active = true`.
 - Dashboard próprio: agenda/receita do mês, variação, semana, concluídos, cancelados, clientes únicos, top serviços, agenda de hoje.
 - Agenda filtrável por período e status.
-- Atualizar status apenas para `CONFIRMED`, `IN_PROGRESS` ou `COMPLETED` (não cancela nem marca no-show por essa API).
+- Atualiza status pela máquina de estados: confirma, inicia (a partir de 1 h antes), conclui e registra falta (depois do início) e cancela até a antecedência mínima, avisando o cliente. “Desfazer” por 10 minutos (`POST /api/professional/appointments/{id}/status/undo`).
 - Só altera agendamentos em que é o profissional.
 
 ### Motor de agenda
@@ -72,8 +77,10 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 - Profissional precisa estar vinculado ao produto.
 - Produto e profissional precisam estar ativos.
 - Horário do dia: `business_hours` + override de `special_days` (data civil UTC), intersectado com expediente/folga do profissional quando houver.
-- Domingo padrão fechado; sábados 08:00–12:00; seg–sex 08:00–18:00 (seed / default da API).
+- Domingo padrão fechado; sábados 08:00–12:00; seg–sex 08:00–18:00 (migration `20261108120000_reliable_schedule`, que só grava com a tabela vazia).
 - Status: `SCHEDULED`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `NO_SHOW`.
+- Máquina de estados única (`apps/api/src/lib/appointment-status.ts`) para admin, profissional e cliente. `COMPLETED`, `CANCELLED` e `NO_SHOW` são finais; ninguém volta para `SCHEDULED`. Concluir e registrar falta só depois do início; iniciar a partir de 1 h antes. Cliente e profissional cancelam até `CANCELLATION_NOTICE_HOURS` antes; o admin, a qualquer momento. Transição inválida responde `409` (ou `403` para papel sem permissão) com `code` (`FINAL_STATUS`, `INVALID_TRANSITION`, `TOO_EARLY`, `CANCELLATION_WINDOW_CLOSED`, `STATUS_CHANGED`).
+- Toda mudança de status fica em `appointment_status_changes` (de, para, papel, quem e motivo). A última mudança pode ser desfeita por quem a fez em até 10 minutos, exceto cancelamento.
 
 ### Operação e qualidade
 
@@ -333,7 +340,7 @@ IDs:
 
 Aliases web: `agendamento.mefelipe.com.br`, `sistema-de-agendamento-web.vercel.app`.
 
-Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=12h` (se ainda estiver `7d`, vale a variável), `RAILPACK_NODE_VERSION=20`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, `EMAIL_ASSET_BASE_URL`.
+Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_ENV=production`, `JWT_SECRET`, `JWT_EXPIRES_IN=12h` (se ainda estiver `7d`, vale a variável), `RAILPACK_NODE_VERSION=20`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, `EMAIL_ASSET_BASE_URL`. Opcional: `CANCELLATION_NOTICE_HOURS` (padrão 2).
 
 Remetente: `Leemia <agendamentos@mefelipe.com.br>` no domínio verificado `mefelipe.com.br` (região Resend `sa-east-1`). Templates HTML em `apps/api/src/emails/`, imagens em `apps/web/public/email/` e `apps/api/emails/static/`. O envio não bloqueia a API: falha de e-mail é só logada. Endereços `*@leemia.dev` (seed) são ignorados para não gerar bounce.
 

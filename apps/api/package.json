@@ -9,7 +9,7 @@
     "build": "npx prisma generate && tsc",
     "start": "node dist/server.js",
     "lint": "eslint src/ --ext .ts",
-    "test": "tsx --test \"test/**/*.test.ts\"",
+    "test": "node ../../scripts/run-node-tests.mjs test",
     "db:migrate": "npx prisma migrate dev",
     "db:studio": "npx prisma studio",
     "db:generate": "npx prisma generate",

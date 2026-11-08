@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { assertDisposableDatabase } from '../../apps/api/src/lib/database-guard';
 import { E2E_NOTE_PREFIX, USER_A, USER_B } from './env';
 import { loadE2eEnv } from './load-env';
@@ -107,9 +108,37 @@ async function upsertE2eUser(
       name: account.name,
       password,
       active: true,
+      // As contas reutilizadas são sempre clientes, mesmo que um teste de convite tenha caído no meio.
+      role: 'USER',
       emailVerifiedAt: new Date(),
     },
   });
+}
+
+/** Grava um convite com token conhecido (o real só existe no e-mail, que `@leemia.dev` não recebe). */
+export async function insertEmployeeInvite(data: {
+  employeeId: string;
+  email: string;
+  token: string;
+}) {
+  const tokenHash = createHash('sha256').update(data.token).digest('hex');
+  await withPrisma((prisma) =>
+    prisma.employeeInvite.create({
+      data: {
+        employeeId: data.employeeId,
+        email: data.email.trim().toLowerCase(),
+        tokenHash,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    }),
+  );
+}
+
+/** Garante o papel de uma conta de teste (limpeza dos testes de convite). */
+export async function setUserRole(email: string, role: 'USER' | 'EMPLOYEE') {
+  const value = email.trim().toLowerCase();
+  if (!isDisposableE2eEmail(value)) return;
+  await withPrisma((prisma) => prisma.user.updateMany({ where: { email: value }, data: { role } }));
 }
 
 /** Marca o e-mail como confirmado sem passar pela caixa de entrada (contas `@leemia.dev` não recebem e-mail). */
@@ -153,6 +182,18 @@ export async function sweepE2eDatabase(mode: 'leftover' | 'all') {
     const marked = await prisma.appointment.deleteMany({
       where: { notes: { startsWith: E2E_NOTE_PREFIX } },
     });
+
+    // Dias especiais e profissionais temporários dos testes da Fase 1.
+    await prisma.specialDay.deleteMany({ where: { title: { startsWith: E2E_NOTE_PREFIX } } });
+    const tempEmployees = await prisma.employee.findMany({
+      where: { email: { startsWith: 'e2e.employee.' } },
+      select: { id: true, userId: true },
+    });
+    if (tempEmployees.length) {
+      const ids = tempEmployees.map((employee) => employee.id);
+      await prisma.appointment.deleteMany({ where: { employeeId: { in: ids } } });
+      await prisma.employee.deleteMany({ where: { id: { in: ids } } });
+    }
 
     const candidates = await prisma.user.findMany({
       where: {

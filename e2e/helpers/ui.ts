@@ -1,30 +1,41 @@
 import { expect, type Page } from '@playwright/test';
-import { INTRO_STORAGE_KEY } from './env';
+import { INTRO_SEEN_AT_KEY, INTRO_STORAGE_KEY } from '../../apps/web/src/lib/intro-script';
 import type { AuthUser, Availability } from './api';
 import { formatLongDate, formatSlotTime, parseDateKey, todayKey } from './dates';
 
+/** A abertura só toca em "/" para visitante que não a viu; aqui ela conta como já vista. */
 export async function skipIntro(page: Page) {
-  await page.addInitScript((key) => {
-    try {
-      sessionStorage.setItem(key, '1');
-    } catch {
-      // ignore
-    }
-  }, INTRO_STORAGE_KEY);
-}
-
-export async function injectSession(page: Page, token: string, user: AuthUser) {
   await page.addInitScript(
-    ({ authToken, profile, introKey }) => {
+    ({ tabKey, seenAtKey }) => {
       try {
-        localStorage.setItem('token', authToken);
-        localStorage.setItem('user', JSON.stringify(profile));
-        sessionStorage.setItem(introKey, '1');
+        sessionStorage.setItem(tabKey, '1');
+        localStorage.setItem(seenAtKey, String(Date.now()));
       } catch {
         // ignore
       }
     },
-    { authToken: token, profile: user, introKey: INTRO_STORAGE_KEY },
+    { tabKey: INTRO_STORAGE_KEY, seenAtKey: INTRO_SEEN_AT_KEY },
+  );
+}
+
+export async function injectSession(page: Page, token: string, user: AuthUser) {
+  await page.addInitScript(
+    ({ authToken, profile, tabKey, seenAtKey }) => {
+      try {
+        localStorage.setItem('token', authToken);
+        localStorage.setItem('user', JSON.stringify(profile));
+        sessionStorage.setItem(tabKey, '1');
+        localStorage.setItem(seenAtKey, String(Date.now()));
+      } catch {
+        // ignore
+      }
+    },
+    {
+      authToken: token,
+      profile: user,
+      tabKey: INTRO_STORAGE_KEY,
+      seenAtKey: INTRO_SEEN_AT_KEY,
+    },
   );
 }
 

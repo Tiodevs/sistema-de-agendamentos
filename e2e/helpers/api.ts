@@ -9,6 +9,7 @@ export type ApiResult<T = unknown> = {
     code?: string;
     data?: T;
     errors?: Array<{ field: string; message: string }>;
+    details?: Record<string, unknown>;
   };
 };
 
