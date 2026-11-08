@@ -17,7 +17,7 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 
 ### Autenticação e contas
 
-- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 8, com letra maiúscula e caractere especial) e telefone opcional. Envia e-mail de boas-vindas (Resend). Contas antigas continuam podendo entrar com a senha que já tinham.
+- Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 8, com letra maiúscula e caractere especial) e telefone opcional. A conta já entra, mas só reserva depois de confirmar o e-mail pelo link (24 h, `POST /api/auth/verify-email/resend` reenvia). O e-mail de boas-vindas vai depois da confirmação. Contas anteriores a essa regra ficaram confirmadas na migration. Contas antigas continuam podendo entrar com a senha que já tinham.
 - Login com JWT (`Bearer`, `alg=HS256`), validade configurável (`JWT_EXPIRES_IN`, padrão 12 horas). Payload: `{ id, email, role, tv }`.
 - Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`. `POST /api/auth/logout` incrementa `tokenVersion` e derruba todas as sessões da conta.
 - Redirecionamento pós-login por papel: admin → `/admin`, profissional → `/professional`, cliente → `/`.
@@ -148,12 +148,12 @@ Guards no cliente (layouts):
 
 ### 4.1 Autenticação
 
-1. `POST /api/auth/register` valida Zod (senha com maiúscula + especial), recusa e-mail duplicado, grava hash bcrypt, devolve user + token.
-2. `POST /api/auth/login` busca por e-mail, compara senha (hash dummy se a conta não existir), trata inativa como credencial inválida, anexa `employeeId` se houver vínculo. Falhas repetidas bloqueiam o e-mail por 15 min (memória do processo).
+1. `POST /api/auth/register` valida Zod (senha com maiúscula + especial), recusa e-mail duplicado, grava hash bcrypt, gera o link de confirmação do e-mail e devolve user (`emailVerified: false`) + token.
+2. `POST /api/auth/login` busca por e-mail, compara senha (hash dummy se a conta não existir), trata inativa como credencial inválida, anexa `employeeId` se houver vínculo. Cinco falhas em 15 min bloqueiam o par **e-mail + IP** por 15 min (memória do processo): outro IP continua entrando, o reset de senha libera a conta e a resposta diz o horário (`429`, `code: LOGIN_LOCKED`).
 3. Cliente: `useAuth` persiste token; `apiRequest` injeta `Authorization`. `Sair` chama `POST /api/auth/logout` e limpa o storage.
 4. `authMiddleware` recusa ausência de header, formato inválido, JWT inválido/expirado, `tv` diferente de `tokenVersion`, ou `iat` anterior a `passwordChangedAt`.
-5. `PATCH /api/auth/profile` atualiza nome/telefone na hora. E-mail novo gera token (hash SHA-256, 30 min) e só entra após `POST /api/auth/confirm-email`.
-6. Reset de senha: o e-mail aponta para `/reset-password#token=...` (fragmento, não query).
+5. `PATCH /api/auth/profile` atualiza nome/telefone na hora. E-mail novo gera token (hash SHA-256, 30 min) e só entra após `POST /api/auth/confirm-email`. O mesmo endpoint confirma o e-mail do cadastro e marca `emailVerifiedAt`.
+6. Reset de senha: o e-mail aponta para `/reset-password#token=...` (fragmento, não query). Como o link chegou no e-mail da conta, o reset também marca o e-mail como confirmado e libera o bloqueio de login.
 
 Arquivos: `apps/api/src/services/auth.service.ts`, `apps/web/src/hooks/use-auth.tsx`, `apps/web/src/lib/api.ts`.
 
@@ -178,6 +178,8 @@ Produto = serviço vendável (`duration` em minutos, `price` decimal 10,2). Admi
 5. Marca indisponível se passou ou se o intervalo cruza outro agendamento.
 
 Cliente reserva com `POST /api/appointments/book` — o `clientId` é **sempre** o do token (não aceita agendar em nome de outro) e o papel precisa ser `USER`. Admin usa `POST /api/appointments` com `clientId` explícito. O `create` valida a mesma grade da disponibilidade e serializa reservas do mesmo profissional.
+
+Na reserva do próprio cliente (`apps/api/src/lib/booking-rules.ts`): e-mail confirmado (`403 EMAIL_NOT_VERIFIED`), no máximo 3 agendamentos futuros marcados ou confirmados (`409 BOOKING_LIMIT_REACHED`, contado com a linha do cliente travada) e até 60 dias de antecedência (`400 BOOKING_TOO_FAR`). Limite de 30 pedidos por hora por usuário. O admin não passa por essas regras. Cada destinatário recebe no máximo 50 e-mails por dia (5 de confirmação, 10 de reset).
 
 ### 4.5 Expediente
 
@@ -224,6 +226,7 @@ Base `/api`. JSON `{ status, message?, data?, errors? }`. Erros de domínio: `st
 | POST                                | `/auth/register`                        | público + rate                                 | cadastro                           |
 | POST                                | `/auth/login`                           | público + rate                                 | login                              |
 | GET                                 | `/auth/me`                              | token                                          | perfil                             |
+| POST                                | `/auth/verify-email/resend`             | token + rate                                   | reenvia confirmação do e-mail      |
 | GET                                 | `/auth/clients`                         | admin                                          | busca clientes                     |
 | CRUD + toggle                       | `/products`                             | mutações admin; `includeInactive` só admin     | catálogo                           |
 | CRUD + toggle + `PUT /:id/products` | `/employees`                            | mutações admin; listagem USER sem PII          | equipe                             |
@@ -340,21 +343,22 @@ Build Railway: `npm ci && npm run build --workspace=api`. Start: `npm run start 
 
 ## 10. Rodar localmente e seed
 
+Ambiente Docker, com Postgres próprio (detalhes no [README](../readme.md)):
+
 ```bash
 npm install
-npm run db:tunnel    # terminal 1 — obrigatório
-npm run db:seed      # opcional; grava no Postgres de produção
-npm run dev          # API :3001 + web :3000
+cp .env.example .env                 # POSTGRES_PASSWORD, JWT_SECRET e SEED_PASSWORD
+docker compose up -d --build --wait  # web :3000, API :3001, Postgres :5434
+docker compose run --rm seed         # opcional; grava só no Postgres do container
 ```
 
 Seed (`apps/api/prisma/seed.ts`):
 
-- Promove `agedamentos.admin.felipe@gmail.com` a `ADMIN` (não altera senha).
-- Mantém `agendamento.felipe@gmail.com` como `USER`.
+- Cria (ou devolve ao estado do seed) `admin@leemia.dev` como `ADMIN` e `cliente@leemia.dev` como `USER`. `SEED_ADMIN_EMAIL` e `SEED_CLIENT_EMAIL` promovem uma conta já cadastrada, sem mudar nome nem senha.
 - Cria profissionais `*@leemia.dev`, produtos, expediente, Natal fechado, 9 agendamentos `[seed]`.
-- Senha das contas **fictícias**: `Senha@123`.
-
-Como local = produção no banco, o seed aparece no site publicado.
+- Senha das contas fictícias: a de `SEED_PASSWORD`; sem ela, uma senha sorteada a cada execução, mostrada no fim.
+- Todas as contas do seed saem com e-mail confirmado.
+- Recusa rodar contra o Postgres de produção (`apps/api/src/lib/database-guard.ts`): host do Railway, banco `railway`, porta 5433 do túnel ou `NODE_ENV=production`.
 
 Migrations: `cd apps/api && npx prisma migrate deploy`.
 

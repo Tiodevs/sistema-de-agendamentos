@@ -1,12 +1,25 @@
 import 'dotenv/config';
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../src/config/database';
+import { assertDisposableDatabase } from '../src/lib/database-guard';
 
 const SEED_NOTE = '[seed]';
-const SEED_PASSWORD = 'Senha@123';
 
-const ADMIN_EMAIL = 'agedamentos.admin.felipe@gmail.com';
-const CLIENT_EMAIL_CANDIDATES = ['agedamentos.felipe@gmail.com', 'agendamento.felipe@gmail.com'];
+/** Senha das contas fictícias. Sem SEED_PASSWORD, cada execução gera uma nova e a mostra no fim. */
+const PASSWORD_FROM_ENV = process.env.SEED_PASSWORD?.trim();
+const SEED_PASSWORD = PASSWORD_FROM_ENV || `Seed-${randomBytes(9).toString('base64url')}!`;
+
+const DEFAULT_ADMIN = { name: 'Admin Leemia', email: 'admin@leemia.dev' };
+const DEFAULT_CLIENT = {
+  name: 'Cliente Leemia',
+  email: 'cliente@leemia.dev',
+  phone: '(11) 97777-2000',
+};
+
+/** Opcional: promover uma conta que você já cadastrou. Ela mantém nome e senha. */
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase() || DEFAULT_ADMIN.email;
+const CLIENT_EMAIL = process.env.SEED_CLIENT_EMAIL?.trim().toLowerCase() || DEFAULT_CLIENT.email;
 
 const DEFAULT_HOURS = [
   { dayOfWeek: 0, openTime: '08:00', closeTime: '18:00', isClosed: true },
@@ -100,14 +113,20 @@ function isOpenDay(date: Date): boolean {
   return hour >= 8 && hour < 18;
 }
 
-async function upsertUser(data: {
-  name: string;
-  email: string;
-  phone?: string | null;
-  role: string;
-  resetPassword: boolean;
-}) {
-  const password = await bcrypt.hash(SEED_PASSWORD, 12);
+/**
+ * Cria a conta ou a devolve ao estado do seed. Uma conta real (`fictitious: false`) só ganha
+ * papel, fica ativa e confirmada: nome, telefone e senha não mudam.
+ */
+async function upsertUser(
+  passwordHash: string,
+  data: {
+    name: string;
+    email: string;
+    phone?: string | null;
+    role: string;
+    fictitious: boolean;
+  },
+) {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
 
   if (!existing) {
@@ -117,19 +136,21 @@ async function upsertUser(data: {
         email: data.email,
         phone: data.phone ?? null,
         role: data.role,
-        password,
+        password: passwordHash,
+        emailVerifiedAt: new Date(),
       },
     });
   }
 
   return prisma.user.update({
-    where: { email: data.email },
+    where: { id: existing.id },
     data: {
-      name: data.name,
-      phone: data.phone ?? existing.phone,
       role: data.role,
       active: true,
-      ...(data.resetPassword ? { password } : {}),
+      emailVerifiedAt: existing.emailVerifiedAt ?? new Date(),
+      ...(data.fictitious
+        ? { name: data.name, phone: data.phone ?? existing.phone, password: passwordHash }
+        : {}),
     },
   });
 }
@@ -207,37 +228,29 @@ async function renameLegacyBrandEmails() {
 }
 
 async function main() {
+  // O seed sobrescreve expediente, preços e senhas: nunca no Postgres de produção.
+  assertDisposableDatabase(process.env.DATABASE_URL, 'Seed');
+
+  const passwordHash = await bcrypt.hash(SEED_PASSWORD, 12);
+
   await renameLegacyBrandEmails();
 
-  const admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
-  if (!admin) {
-    throw new Error(
-      `Conta admin não encontrada: ${ADMIN_EMAIL}. Crie a conta no cadastro antes de rodar o seed.`,
-    );
-  }
-
-  let client = null;
-  for (const email of CLIENT_EMAIL_CANDIDATES) {
-    client = await prisma.user.findUnique({ where: { email } });
-    if (client) break;
-  }
-  if (!client) {
-    throw new Error(
-      `Conta de cliente não encontrada. Esperado um destes e-mails: ${CLIENT_EMAIL_CANDIDATES.join(', ')}`,
-    );
-  }
-
-  await prisma.user.update({
-    where: { id: admin.id },
-    data: { role: 'ADMIN', active: true },
+  const admin = await upsertUser(passwordHash, {
+    name: DEFAULT_ADMIN.name,
+    email: ADMIN_EMAIL,
+    role: 'ADMIN',
+    fictitious: ADMIN_EMAIL === DEFAULT_ADMIN.email,
   });
-  await prisma.user.update({
-    where: { id: client.id },
-    data: { role: 'USER', active: true },
+  const client = await upsertUser(passwordHash, {
+    name: DEFAULT_CLIENT.name,
+    email: CLIENT_EMAIL,
+    phone: DEFAULT_CLIENT.phone,
+    role: 'USER',
+    fictitious: CLIENT_EMAIL === DEFAULT_CLIENT.email,
   });
 
-  console.log(`Admin promovido: ${admin.email}`);
-  console.log(`Cliente mantido como USER: ${client.email}`);
+  console.log(`Admin: ${admin.email}`);
+  console.log(`Cliente: ${client.email}`);
 
   for (const hour of DEFAULT_HOURS) {
     await prisma.businessHour.upsert({
@@ -275,12 +288,12 @@ async function main() {
 
   const employeesByEmail = new Map<string, { id: string; name: string }>();
   for (const professional of PROFESSIONALS) {
-    const user = await upsertUser({
+    const user = await upsertUser(passwordHash, {
       name: professional.name,
       email: professional.email,
       phone: professional.phone,
       role: 'EMPLOYEE',
-      resetPassword: true,
+      fictitious: true,
     });
     const employee = await upsertEmployee({
       name: professional.name,
@@ -303,12 +316,12 @@ async function main() {
   const extraClients = [];
   for (const extra of EXTRA_CLIENTS) {
     extraClients.push(
-      await upsertUser({
+      await upsertUser(passwordHash, {
         name: extra.name,
         email: extra.email,
         phone: extra.phone,
         role: 'USER',
-        resetPassword: true,
+        fictitious: true,
       }),
     );
   }
@@ -428,7 +441,11 @@ async function main() {
   console.log(`Profissionais: ${employeesByEmail.size}`);
   console.log(`Clientes extras: ${extraClients.length}`);
   console.log(`Agendamentos criados: ${created}`);
-  console.log(`Senha das contas fictícias (profissionais e clientes extras): ${SEED_PASSWORD}`);
+  console.log(
+    PASSWORD_FROM_ENV
+      ? 'Senha das contas fictícias: a de SEED_PASSWORD.'
+      : `Senha das contas fictícias (gerada nesta execução): ${SEED_PASSWORD}`,
+  );
 }
 
 main()

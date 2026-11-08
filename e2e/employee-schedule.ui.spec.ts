@@ -12,7 +12,7 @@ test.describe('Agenda por profissional no admin', () => {
     try {
       session = await login(api, ADMIN.email, ADMIN.password);
     } catch {
-      test.skip(true, 'Admin do seed indisponível para o teste de UI');
+      test.skip(true, 'Admin do seed indisponível: defina E2E_ADMIN_PASSWORD ou SEED_PASSWORD');
       return;
     }
     if (session.user.role !== 'ADMIN') {

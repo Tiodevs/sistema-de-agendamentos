@@ -96,9 +96,9 @@ services:
       retries: 6
       start_period: 10s
 
-  # Dados fictícios (profissionais, produtos, agendas). Só roda quando chamado:
+  # Dados fictícios (admin, cliente, profissionais, produtos, agendas). Só roda quando chamado:
   #   docker compose run --rm seed
-  # Antes, crie pelo cadastro as contas admin e cliente que o seed promove (apps/api/prisma/seed.ts).
+  # Contas *@leemia.dev com a senha de SEED_PASSWORD (sem ela, o seed sorteia e mostra no fim).
   seed:
     build:
       context: .
@@ -107,6 +107,7 @@ services:
     command: ['npm', 'run', 'db:seed']
     environment:
       DATABASE_URL: *database-url
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
