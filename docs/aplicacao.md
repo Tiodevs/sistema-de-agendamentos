@@ -99,7 +99,6 @@ Fechar um dia, criar horário especial, mudar o expediente (do estúdio ou do pr
 - Multi-empresa / multi-tenant.
 - Fila, cache Redis ou filas de job.
 - Testes automatizados.
-- API ligada ao GitHub (deploy da API é upload/`railway up`).
 
 ---
 
@@ -326,8 +325,8 @@ Não há gateways de pagamento, WhatsApp, storage ou analytics de produto no có
 | **Railway**              | API + Postgres + volume 5 GB, região `us-east4-eqdc4a`, health `/api/health` |
 | **Vercel**               | Next, root `apps/web`, Node 24.x, `NEXT_PUBLIC_API_URL`                      |
 | **Resend**               | e-mail transacional (boas-vindas, agendamento, cancelamento)                 |
-| **GitHub**               | repo do frontend na Vercel; API **sem** `source.repo`                        |
-| **Railway CLI**          | `railway up`, `railway connect` (túnel)                                      |
+| **GitHub**               | `main` publica o web (Vercel) e a API (Railway, quando `apps/api/**` muda)   |
+| **Railway CLI**          | `railway connect` (túnel); `railway up` só para deploy manual de emergência  |
 | **Prisma Migrate**       | schema no deploy                                                             |
 | **OpenAPI/Swagger**      | documentação viva das rotas                                                  |
 
@@ -344,7 +343,7 @@ Variáveis da API no Railway: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `NODE_E
 
 Remetente: `Leemia <agendamentos@mefelipe.com.br>` no domínio verificado `mefelipe.com.br` (região Resend `sa-east-1`). Templates HTML em `apps/api/src/emails/`, imagens em `apps/web/public/email/` e `apps/api/emails/static/`. O envio não bloqueia a API: falha de e-mail é só logada. Endereços `*@leemia.dev` (seed) são ignorados para não gerar bounce.
 
-Build Railway: `npm ci && npm run build --workspace=api`. Start: `npm run start --workspace=api`. Pre-deploy: `npm exec --workspace=api -- prisma migrate deploy`.
+Build Railway: `npm ci && npm run build --workspace=api`. Start: `npm run start --workspace=api`. Pre-deploy: `npm run db:deploy --workspace=api`, que roda `apps/api/scripts/predeploy-check.mjs` (só leitura: para o deploy antes das migrations se houver agendamentos ativos sobrepostos sem a trava do DOM-05 ou uma migration marcada como falha) e depois `prisma migrate deploy`.
 
 ---
 
@@ -369,7 +368,7 @@ Seed (`apps/api/prisma/seed.ts`):
 
 Migrations: `cd apps/api && npx prisma migrate deploy`.
 
-Deploy API: `railway up --service api -m "…"`. Deploy web: git/Vercel.
+Deploy: merge na `main`. A Vercel publica o web e o Railway publica a API (o serviço `api` segue a `main`, com watch em `apps/api/**`). Ordem segura para mudanças que dependem da API nova: subir a API primeiro e só depois levar o web para a `main`.
 
 ---
 
