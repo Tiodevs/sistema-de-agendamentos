@@ -1,7 +1,8 @@
 import { prisma } from '../config/database';
-import { calendarDateUtc } from '../lib/datetime';
+import { calendarDateUtc, formatDateKeyShort } from '../lib/datetime';
 import { httpError } from '../lib/http-error';
-import { resolveHoursForDate } from '../lib/schedule-hours';
+import { DEFAULT_STUDIO_HOURS, resolveHoursForDate, type HourLike } from '../lib/schedule-hours';
+import type { ScheduleChange, SpecialOverride } from '../lib/schedule-impact';
 import {
   UpsertBusinessHourInput,
   CreateSpecialDayInput,
@@ -9,6 +10,8 @@ import {
   CreateEmployeeSpecialDayInput,
   UpdateEmployeeSpecialDayInput,
 } from '../schemas/schedule.schema';
+import type { StatusActorContext } from './appointment-status.service';
+import { scheduleImpactService, type AffectedDecision } from './schedule-impact.service';
 
 const DAY_NAMES = [
   'Domingo',
@@ -20,20 +23,13 @@ const DAY_NAMES = [
   'Sábado',
 ];
 
-const DEFAULT_HOURS: {
-  dayOfWeek: number;
-  openTime: string;
-  closeTime: string;
-  isClosed: boolean;
-}[] = [
-  { dayOfWeek: 0, openTime: '08:00', closeTime: '18:00', isClosed: true },
-  { dayOfWeek: 1, openTime: '08:00', closeTime: '18:00', isClosed: false },
-  { dayOfWeek: 2, openTime: '08:00', closeTime: '18:00', isClosed: false },
-  { dayOfWeek: 3, openTime: '08:00', closeTime: '18:00', isClosed: false },
-  { dayOfWeek: 4, openTime: '08:00', closeTime: '18:00', isClosed: false },
-  { dayOfWeek: 5, openTime: '08:00', closeTime: '18:00', isClosed: false },
-  { dayOfWeek: 6, openTime: '08:00', closeTime: '12:00', isClosed: false },
-];
+/** Quem salva e o que fazer com os agendamentos que ficariam fora do expediente (DOM-02). */
+export interface ScheduleMutationOptions {
+  actor: StatusActorContext;
+  onAffected?: AffectedDecision;
+}
+
+type SpecialValues = { isClosed: boolean; openTime: string | null; closeTime: string | null };
 
 function withDayName<T extends { dayOfWeek: number }>(hour: T) {
   return { ...hour, dayName: DAY_NAMES[hour.dayOfWeek] };
@@ -50,44 +46,129 @@ function assertOpenBeforeClose(
   }
 }
 
+function toHour(data: UpsertBusinessHourInput): HourLike {
+  return {
+    dayOfWeek: data.dayOfWeek,
+    openTime: data.openTime,
+    closeTime: data.closeTime,
+    isClosed: data.isClosed,
+  };
+}
+
+/** Valores do dia especial como ficam gravados (fechado não guarda horário). */
+function specialValues(isClosed: boolean, openTime?: string | null, closeTime?: string | null) {
+  return {
+    isClosed,
+    openTime: isClosed ? null : openTime || null,
+    closeTime: isClosed ? null : closeTime || null,
+  } satisfies SpecialValues;
+}
+
+function specialOverride(dateKey: string, values: SpecialValues | null): SpecialOverride {
+  return { dateKey, special: values };
+}
+
+function studioSpecialReason(dateKey: string, title: string, values: SpecialValues | null) {
+  const day = formatDateKeyShort(dateKey);
+  const label = title.trim() ? ` (${title.trim()})` : '';
+  if (!values) return `Mudança no horário do estúdio em ${day}.`;
+  if (values.isClosed) return `O estúdio estará fechado em ${day}${label}.`;
+  return `O estúdio terá horário especial em ${day}${label}, das ${values.openTime} às ${values.closeTime}.`;
+}
+
+function employeeSpecialReason(
+  employeeName: string,
+  dateKey: string,
+  values: SpecialValues | null,
+) {
+  const day = formatDateKeyShort(dateKey);
+  if (values && !values.isClosed) {
+    return `${employeeName} terá um horário diferente em ${day}, das ${values.openTime} às ${values.closeTime}.`;
+  }
+  // O título da exceção do profissional (folga, médico…) não vai para o cliente.
+  return values
+    ? `${employeeName} não vai atender em ${day}.`
+    : `Mudança na agenda de ${employeeName} em ${day}.`;
+}
+
+function specialDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
 export class ScheduleService {
+  /** DOM-07: só leitura. O padrão é gravado pela migration; aqui ele é só um fallback. */
   async getBusinessHours() {
-    let hours = await prisma.businessHour.findMany({
+    const hours = await prisma.businessHour.findMany({
       orderBy: { dayOfWeek: 'asc' },
     });
 
     if (hours.length === 0) {
-      await prisma.businessHour.createMany({ data: DEFAULT_HOURS });
-      hours = await prisma.businessHour.findMany({
-        orderBy: { dayOfWeek: 'asc' },
-      });
+      return DEFAULT_STUDIO_HOURS.map((hour) =>
+        withDayName({ id: `default-${hour.dayOfWeek}`, ...hour, createdAt: null, updatedAt: null }),
+      );
     }
 
     return hours.map(withDayName);
   }
 
-  async upsertBusinessHour(data: UpsertBusinessHourInput) {
-    assertOpenBeforeClose(data.isClosed, data.openTime, data.closeTime);
-
-    const hour = await prisma.businessHour.upsert({
-      where: { dayOfWeek: data.dayOfWeek },
-      create: data,
-      update: {
-        openTime: data.openTime,
-        closeTime: data.closeTime,
-        isClosed: data.isClosed,
-      },
-    });
-
-    return withDayName(hour);
+  async upsertBusinessHour(data: UpsertBusinessHourInput, options: ScheduleMutationOptions) {
+    const saved = await this.saveBusinessHours([data], options);
+    const hour = saved.hours.find((item) => item.dayOfWeek === data.dayOfWeek);
+    return { hour, impact: saved.impact };
   }
 
-  async upsertAllBusinessHours(hours: UpsertBusinessHourInput[]) {
-    const results = [];
+  /** Grava o expediente da semana: valida tudo antes e salva numa transação só (tudo ou nada). */
+  async upsertAllBusinessHours(hours: UpsertBusinessHourInput[], options: ScheduleMutationOptions) {
+    return this.saveBusinessHours(hours, options);
+  }
+
+  private async saveBusinessHours(
+    hours: UpsertBusinessHourInput[],
+    options: ScheduleMutationOptions,
+  ) {
     for (const hour of hours) {
-      results.push(await this.upsertBusinessHour(hour));
+      assertOpenBeforeClose(hour.isClosed, hour.openTime, hour.closeTime);
     }
-    return results;
+
+    const current = await prisma.businessHour.findMany();
+    const byDay = new Map<number, HourLike>(
+      (current.length > 0 ? current : DEFAULT_STUDIO_HOURS).map((hour) => [hour.dayOfWeek, hour]),
+    );
+    for (const hour of hours) byDay.set(hour.dayOfWeek, toHour(hour));
+    const change: ScheduleChange = { studioHours: [...byDay.values()] };
+
+    const affected = await scheduleImpactService.findAffected(change);
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'fora do novo horário');
+
+    const reason = 'Mudança no horário de funcionamento do estúdio.';
+    const { result, impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      reason,
+      async (tx) => {
+        const saved = [];
+        for (const hour of hours) {
+          saved.push(
+            await tx.businessHour.upsert({
+              where: { dayOfWeek: hour.dayOfWeek },
+              create: toHour(hour),
+              update: {
+                openTime: hour.openTime,
+                closeTime: hour.closeTime,
+                isClosed: hour.isClosed,
+              },
+            }),
+          );
+        }
+        return saved;
+      },
+    );
+
+    return {
+      hours: result.sort((left, right) => left.dayOfWeek - right.dayOfWeek).map(withDayName),
+      impact,
+    };
   }
 
   async getHoursForDate(dateStr: string, employeeId?: string) {
@@ -111,7 +192,7 @@ export class ScheduleService {
 
     return resolveHoursForDate({
       dateKey: dateStr,
-      studioHours: studioHours.length > 0 ? studioHours : DEFAULT_HOURS,
+      studioHours: studioHours.length > 0 ? studioHours : [...DEFAULT_STUDIO_HOURS],
       studioSpecials,
       employeeHours,
       employeeSpecials,
@@ -126,7 +207,7 @@ export class ScheduleService {
     return days.map(mapSpecialDay);
   }
 
-  async createSpecialDay(data: CreateSpecialDayInput) {
+  async createSpecialDay(data: CreateSpecialDayInput, options: ScheduleMutationOptions) {
     const dateObj = calendarDateUtc(data.date);
 
     const existing = await prisma.specialDay.findUnique({
@@ -137,23 +218,40 @@ export class ScheduleService {
       throw httpError('Já existe um dia especial cadastrado para esta data', 409);
     }
 
-    assertOpenBeforeClose(data.isClosed ?? true, data.openTime, data.closeTime);
+    const isClosed = data.isClosed ?? true;
+    assertOpenBeforeClose(isClosed, data.openTime, data.closeTime);
+    const values = specialValues(isClosed, data.openTime, data.closeTime);
 
-    const specialDay = await prisma.specialDay.create({
-      data: {
-        date: dateObj,
-        title: data.title,
-        description: data.description || null,
-        isClosed: data.isClosed ?? true,
-        openTime: data.isClosed ? null : data.openTime || null,
-        closeTime: data.isClosed ? null : data.closeTime || null,
-      },
+    const affected = await scheduleImpactService.findAffected({
+      dateKeys: [data.date],
+      studioSpecials: [specialOverride(data.date, values)],
     });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
 
-    return mapSpecialDay(specialDay);
+    const { result, impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      studioSpecialReason(data.date, data.title, values),
+      (tx) =>
+        tx.specialDay.create({
+          data: {
+            date: dateObj,
+            title: data.title,
+            description: data.description || null,
+            ...values,
+          },
+        }),
+    );
+
+    return { day: mapSpecialDay(result), impact };
   }
 
-  async updateSpecialDay(id: string, data: UpdateSpecialDayInput) {
+  async updateSpecialDay(
+    id: string,
+    data: UpdateSpecialDayInput,
+    options: ScheduleMutationOptions,
+  ) {
     const existing = await prisma.specialDay.findUnique({ where: { id } });
     if (!existing) {
       throw httpError('Dia especial não encontrado', 404);
@@ -164,32 +262,69 @@ export class ScheduleService {
     const closeTime = data.closeTime !== undefined ? data.closeTime : existing.closeTime;
     assertOpenBeforeClose(isClosed, openTime, closeTime);
 
-    const updateData: Record<string, unknown> = {};
-
-    if (data.date !== undefined) {
-      updateData.date = calendarDateUtc(data.date);
+    const oldKey = specialDateKey(existing.date);
+    const newKey = data.date ?? oldKey;
+    if (newKey !== oldKey) {
+      const clash = await prisma.specialDay.findUnique({
+        where: { date: calendarDateUtc(newKey) },
+      });
+      if (clash) {
+        throw httpError('Já existe um dia especial cadastrado para esta data', 409);
+      }
     }
-    if (data.title !== undefined) updateData.title = data.title;
-    if (data.description !== undefined) updateData.description = data.description || null;
-    if (data.isClosed !== undefined) updateData.isClosed = data.isClosed;
-    if (data.openTime !== undefined) updateData.openTime = data.openTime || null;
-    if (data.closeTime !== undefined) updateData.closeTime = data.closeTime || null;
 
-    const specialDay = await prisma.specialDay.update({
-      where: { id },
-      data: updateData,
+    const values = specialValues(isClosed, openTime, closeTime);
+    const overrides = [specialOverride(newKey, values)];
+    if (newKey !== oldKey) overrides.push(specialOverride(oldKey, null));
+
+    const affected = await scheduleImpactService.findAffected({
+      dateKeys: [oldKey, newKey],
+      studioSpecials: overrides,
     });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
 
-    return mapSpecialDay(specialDay);
+    const { result, impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      studioSpecialReason(newKey, data.title ?? existing.title, values),
+      (tx) =>
+        tx.specialDay.update({
+          where: { id },
+          data: {
+            ...(data.date !== undefined && { date: calendarDateUtc(data.date) }),
+            ...(data.title !== undefined && { title: data.title }),
+            ...(data.description !== undefined && { description: data.description || null }),
+            ...values,
+          },
+        }),
+    );
+
+    return { day: mapSpecialDay(result), impact };
   }
 
-  async deleteSpecialDay(id: string) {
+  /** Remover um dia especial também pode fechar o dia (ex.: um domingo que abriria excepcionalmente). */
+  async deleteSpecialDay(id: string, options: ScheduleMutationOptions) {
     const existing = await prisma.specialDay.findUnique({ where: { id } });
     if (!existing) {
       throw httpError('Dia especial não encontrado', 404);
     }
 
-    await prisma.specialDay.delete({ where: { id } });
+    const dateKey = specialDateKey(existing.date);
+    const affected = await scheduleImpactService.findAffected({
+      dateKeys: [dateKey],
+      studioSpecials: [specialOverride(dateKey, null)],
+    });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
+
+    const { impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      studioSpecialReason(dateKey, existing.title, null),
+      (tx) => tx.specialDay.delete({ where: { id } }),
+    );
+    return { impact };
   }
 
   async listEmployeeScheduleSummaries() {
@@ -262,37 +397,63 @@ export class ScheduleService {
     };
   }
 
-  async upsertEmployeeHours(employeeId: string, hours: UpsertBusinessHourInput[]) {
-    await this.requireEmployee(employeeId);
+  async upsertEmployeeHours(
+    employeeId: string,
+    hours: UpsertBusinessHourInput[],
+    options: ScheduleMutationOptions,
+  ) {
+    const employee = await this.requireEmployee(employeeId);
 
     for (const hour of hours) {
       assertOpenBeforeClose(hour.isClosed, hour.openTime, hour.closeTime);
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.employeeBusinessHour.deleteMany({ where: { employeeId } });
-      await tx.employeeBusinessHour.createMany({
-        data: hours.map((hour) => ({
-          employeeId,
-          dayOfWeek: hour.dayOfWeek,
-          openTime: hour.openTime,
-          closeTime: hour.closeTime,
-          isClosed: hour.isClosed,
-        })),
-      });
+    const affected = await scheduleImpactService.findAffected({
+      employeeId,
+      employeeHours: hours.map(toHour),
     });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'fora do novo horário');
 
-    return this.getEmployeeSchedule(employeeId);
+    const { impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      `Mudança no horário de atendimento de ${employee.name}.`,
+      async (tx) => {
+        await tx.employeeBusinessHour.deleteMany({ where: { employeeId } });
+        await tx.employeeBusinessHour.createMany({
+          data: hours.map((hour) => ({ employeeId, ...toHour(hour) })),
+        });
+      },
+    );
+
+    return { ...(await this.getEmployeeSchedule(employeeId)), impact };
   }
 
-  async resetEmployeeHours(employeeId: string) {
-    await this.requireEmployee(employeeId);
-    await prisma.employeeBusinessHour.deleteMany({ where: { employeeId } });
-    return this.getEmployeeSchedule(employeeId);
+  /** Voltar ao horário do estúdio também pode tirar horários (se o do estúdio for menor). */
+  async resetEmployeeHours(employeeId: string, options: ScheduleMutationOptions) {
+    const employee = await this.requireEmployee(employeeId);
+
+    const affected = await scheduleImpactService.findAffected({ employeeId, employeeHours: [] });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'fora do novo horário');
+
+    const { impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      `Mudança no horário de atendimento de ${employee.name}.`,
+      (tx) => tx.employeeBusinessHour.deleteMany({ where: { employeeId } }),
+    );
+
+    return { ...(await this.getEmployeeSchedule(employeeId)), impact };
   }
 
-  async createEmployeeSpecialDay(employeeId: string, data: CreateEmployeeSpecialDayInput) {
-    await this.requireEmployee(employeeId);
+  async createEmployeeSpecialDay(
+    employeeId: string,
+    data: CreateEmployeeSpecialDayInput,
+    options: ScheduleMutationOptions,
+  ) {
+    const employee = await this.requireEmployee(employeeId);
     const dateObj = calendarDateUtc(data.date);
 
     const existing = await prisma.employeeSpecialDay.findUnique({
@@ -302,28 +463,44 @@ export class ScheduleService {
       throw httpError('Já existe uma exceção cadastrada para este profissional nesta data', 409);
     }
 
-    assertOpenBeforeClose(data.isClosed ?? true, data.openTime, data.closeTime);
+    const isClosed = data.isClosed ?? true;
+    assertOpenBeforeClose(isClosed, data.openTime, data.closeTime);
+    const values = specialValues(isClosed, data.openTime, data.closeTime);
 
-    const specialDay = await prisma.employeeSpecialDay.create({
-      data: {
-        employeeId,
-        date: dateObj,
-        title: data.title,
-        description: data.description || null,
-        isClosed: data.isClosed ?? true,
-        openTime: data.isClosed ? null : data.openTime || null,
-        closeTime: data.isClosed ? null : data.closeTime || null,
-      },
+    const affected = await scheduleImpactService.findAffected({
+      employeeId,
+      dateKeys: [data.date],
+      employeeSpecials: [specialOverride(data.date, values)],
     });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
 
-    return mapSpecialDay(specialDay);
+    const { result, impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      employeeSpecialReason(employee.name, data.date, values),
+      (tx) =>
+        tx.employeeSpecialDay.create({
+          data: {
+            employeeId,
+            date: dateObj,
+            title: data.title,
+            description: data.description || null,
+            ...values,
+          },
+        }),
+    );
+
+    return { day: mapSpecialDay(result), impact };
   }
 
   async updateEmployeeSpecialDay(
     employeeId: string,
     id: string,
     data: UpdateEmployeeSpecialDayInput,
+    options: ScheduleMutationOptions,
   ) {
+    const employee = await this.requireEmployee(employeeId);
     const existing = await prisma.employeeSpecialDay.findFirst({
       where: { id, employeeId },
     });
@@ -336,23 +513,50 @@ export class ScheduleService {
     const closeTime = data.closeTime !== undefined ? data.closeTime : existing.closeTime;
     assertOpenBeforeClose(isClosed, openTime, closeTime);
 
-    const updateData: Record<string, unknown> = {};
-    if (data.date !== undefined) updateData.date = calendarDateUtc(data.date);
-    if (data.title !== undefined) updateData.title = data.title;
-    if (data.description !== undefined) updateData.description = data.description || null;
-    if (data.isClosed !== undefined) updateData.isClosed = data.isClosed;
-    if (data.openTime !== undefined) updateData.openTime = data.openTime || null;
-    if (data.closeTime !== undefined) updateData.closeTime = data.closeTime || null;
+    const oldKey = specialDateKey(existing.date);
+    const newKey = data.date ?? oldKey;
+    if (newKey !== oldKey) {
+      const clash = await prisma.employeeSpecialDay.findUnique({
+        where: { employeeId_date: { employeeId, date: calendarDateUtc(newKey) } },
+      });
+      if (clash) {
+        throw httpError('Já existe uma exceção cadastrada para este profissional nesta data', 409);
+      }
+    }
 
-    const specialDay = await prisma.employeeSpecialDay.update({
-      where: { id },
-      data: updateData,
+    const values = specialValues(isClosed, openTime, closeTime);
+    const overrides = [specialOverride(newKey, values)];
+    if (newKey !== oldKey) overrides.push(specialOverride(oldKey, null));
+
+    const affected = await scheduleImpactService.findAffected({
+      employeeId,
+      dateKeys: [oldKey, newKey],
+      employeeSpecials: overrides,
     });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
 
-    return mapSpecialDay(specialDay);
+    const { result, impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      employeeSpecialReason(employee.name, newKey, values),
+      (tx) =>
+        tx.employeeSpecialDay.update({
+          where: { id },
+          data: {
+            ...(data.date !== undefined && { date: calendarDateUtc(data.date) }),
+            ...(data.title !== undefined && { title: data.title }),
+            ...(data.description !== undefined && { description: data.description || null }),
+            ...values,
+          },
+        }),
+    );
+
+    return { day: mapSpecialDay(result), impact };
   }
 
-  async deleteEmployeeSpecialDay(employeeId: string, id: string) {
+  async deleteEmployeeSpecialDay(employeeId: string, id: string, options: ScheduleMutationOptions) {
+    const employee = await this.requireEmployee(employeeId);
     const existing = await prisma.employeeSpecialDay.findFirst({
       where: { id, employeeId },
     });
@@ -360,7 +564,22 @@ export class ScheduleService {
       throw httpError('Exceção do profissional não encontrada', 404);
     }
 
-    await prisma.employeeSpecialDay.delete({ where: { id } });
+    const dateKey = specialDateKey(existing.date);
+    const affected = await scheduleImpactService.findAffected({
+      employeeId,
+      dateKeys: [dateKey],
+      employeeSpecials: [specialOverride(dateKey, null)],
+    });
+    scheduleImpactService.requireDecision(affected, options.onAffected, 'sem atendimento');
+
+    const { impact } = await scheduleImpactService.commit(
+      affected,
+      options.onAffected,
+      options.actor,
+      employeeSpecialReason(employee.name, dateKey, null),
+      (tx) => tx.employeeSpecialDay.delete({ where: { id } }),
+    );
+    return { impact };
   }
 
   private async requireEmployee(employeeId: string) {

@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  apiErrorMessage,
   createEmployeeSpecialDay,
   deleteEmployeeSpecialDay,
   getEmployeeSchedule,
@@ -36,6 +37,13 @@ import { UserAvatar } from '@/components/user-avatar';
 import { ScheduleHoursEditor } from '@/components/admin/schedule-hours-editor';
 import { StaggerIn } from '@/components/motion/stagger-in';
 import { cn } from '@/lib/utils';
+import { impactMessage } from '@/lib/affected-appointments';
+import { todayDateKey } from '@/lib/datetime';
+import { splitSpecialDays } from '@/lib/special-days';
+import {
+  AffectedAppointmentsDialog,
+  useAffectedAppointments,
+} from '@/components/admin/affected-appointments-dialog';
 import {
   AlertCircle,
   AlertTriangle,
@@ -57,6 +65,12 @@ function formatDateBR(dateStr: string): string {
     month: 'long',
     year: 'numeric',
   });
+}
+
+/** "24/12" de um dia `YYYY-MM-DD`. */
+function formatDayMonthKey(dateKey: string) {
+  const [, month, day] = dateKey.slice(0, 10).split('-');
+  return `${day}/${month}`;
 }
 
 function toPayload(hours: Array<BusinessHourPayload>): BusinessHourPayload[] {
@@ -107,27 +121,48 @@ export function ProfessionalSchedulePanel() {
     }
   }, []);
 
-  const loadSchedule = useCallback(async (employeeId: string) => {
-    setLoadingSchedule(true);
-    try {
-      const res = await getEmployeeSchedule(employeeId);
-      if (res.data) {
-        setSchedule(res.data);
-        setEditHours(toPayload(res.data.hours));
-        setCustomizing(res.data.usesCustomHours);
-      }
-    } catch {
-      toast.error('Erro ao carregar horário do profissional');
-    } finally {
-      setLoadingSchedule(false);
-    }
+  // ARQ-07: trocar de profissional rápido não pode mostrar (nem salvar) a grade de outro. Cada
+  // pedido ganha um número; resposta de pedido antigo é descartada.
+  const scheduleRequest = useRef(0);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
+  const affected = useAffectedAppointments();
+
+  const applySchedule = useCallback((data: EmployeeSchedule) => {
+    // Resposta de um profissional que não está mais na tela não muda a grade.
+    if (data.employee.id !== selectedIdRef.current) return;
+    setSchedule(data);
+    setEditHours(toPayload(data.hours));
+    setCustomizing(data.usesCustomHours);
   }, []);
+
+  const loadSchedule = useCallback(
+    async (employeeId: string) => {
+      const requestId = ++scheduleRequest.current;
+      setLoadingSchedule(true);
+      try {
+        const res = await getEmployeeSchedule(employeeId);
+        if (requestId !== scheduleRequest.current) return;
+        if (res.data) applySchedule(res.data);
+      } catch {
+        if (requestId === scheduleRequest.current) {
+          toast.error('Erro ao carregar horário do profissional');
+        }
+      } finally {
+        if (requestId === scheduleRequest.current) setLoadingSchedule(false);
+      }
+    },
+    [applySchedule],
+  );
 
   useEffect(() => {
     loadList();
   }, [loadList]);
 
   useEffect(() => {
+    // A grade do profissional anterior some na hora: nada dela pode ser salvo no novo.
+    setSchedule(null);
+    setEditHours([]);
     if (selectedId) loadSchedule(selectedId);
   }, [selectedId, loadSchedule]);
 
@@ -145,99 +180,126 @@ export function ProfessionalSchedulePanel() {
   const savedPayload = schedule ? toPayload(schedule.hours) : [];
   const hasChanges = customizing && JSON.stringify(editHours) !== JSON.stringify(savedPayload);
   const specialDays: SpecialDay[] = schedule?.specialDays ?? [];
-  const upcomingDays = specialDays.filter(
-    (day) => new Date(day.date) >= new Date(new Date().toISOString().split('T')[0]),
-  );
-  const pastDays = specialDays.filter(
-    (day) => new Date(day.date) < new Date(new Date().toISOString().split('T')[0]),
-  );
+  // UX-05: "próximas" e "passadas" pelo dia de São Paulo, não pela data UTC.
+  const { upcoming: upcomingDays, past: pastDays } = splitSpecialDays(specialDays, todayDateKey());
+  /** O profissional cuja grade está na tela: é para ele que vão as mudanças. */
+  const shownEmployeeId =
+    schedule && schedule.employee.id === selectedId && !loadingSchedule
+      ? schedule.employee.id
+      : null;
+  const shownName = schedule?.employee.name ?? 'o profissional';
 
   async function handleSaveHours() {
-    if (!selectedId) return;
+    const employeeId = shownEmployeeId;
+    if (!employeeId) return;
+    const payload = editHours;
     setSaving(true);
     try {
-      const res = await updateEmployeeHours(selectedId, editHours);
-      if (res.data) {
-        setSchedule(res.data);
-        setEditHours(toPayload(res.data.hours));
-        setCustomizing(true);
-        await loadList();
-        toast.success('Horário do profissional salvo');
-      }
+      await affected.run(`O novo horário de ${shownName}`, async (decision) => {
+        const res = await updateEmployeeHours(employeeId, payload, decision);
+        if (res.data) {
+          applySchedule(res.data);
+          await loadList();
+          toast.success(impactMessage('Horário do profissional salvo.', res.data.impact));
+        }
+      });
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao salvar horário');
+      toast.error(apiErrorMessage(err, 'Erro ao salvar horário'));
     } finally {
       setSaving(false);
     }
   }
 
   async function handleResetHours() {
-    if (!selectedId) return;
+    const employeeId = shownEmployeeId;
+    if (!employeeId) return;
     setSaving(true);
     try {
-      const res = await resetEmployeeHours(selectedId);
-      if (res.data) {
-        setSchedule(res.data);
-        setEditHours(toPayload(res.data.hours));
-        setCustomizing(false);
-        setResetOpen(false);
-        await loadList();
-        toast.success('Voltou ao horário do estabelecimento');
-      }
+      await affected.run(`Voltar ${shownName} ao horário do estúdio`, async (decision) => {
+        const res = await resetEmployeeHours(employeeId, decision);
+        if (res.data) {
+          applySchedule(res.data);
+          setResetOpen(false);
+          await loadList();
+          toast.success(impactMessage('Voltou ao horário do estabelecimento.', res.data.impact));
+        }
+      });
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao restaurar horário');
+      toast.error(apiErrorMessage(err, 'Erro ao restaurar horário'));
     } finally {
       setSaving(false);
     }
   }
 
   async function handleCreateDay() {
-    if (!selectedId || !newDay.date || !newDay.title) {
+    const employeeId = shownEmployeeId;
+    if (!employeeId || !newDay.date || !newDay.title) {
       toast.error('Preencha a data e o título');
       return;
     }
+    const body = {
+      date: newDay.date,
+      title: newDay.title,
+      description: newDay.description || undefined,
+      isClosed: newDay.isClosed,
+      openTime: newDay.isClosed ? null : newDay.openTime,
+      closeTime: newDay.isClosed ? null : newDay.closeTime,
+    };
+    const day = formatDayMonthKey(body.date);
     setCreatingDay(true);
     try {
-      await createEmployeeSpecialDay(selectedId, {
-        date: newDay.date,
-        title: newDay.title,
-        description: newDay.description || undefined,
-        isClosed: newDay.isClosed,
-        openTime: newDay.isClosed ? null : newDay.openTime,
-        closeTime: newDay.isClosed ? null : newDay.closeTime,
-      });
-      toast.success('Exceção criada com sucesso');
-      setShowNewDay(false);
-      setNewDay({
-        date: '',
-        title: '',
-        description: '',
-        isClosed: true,
-        openTime: '08:00',
-        closeTime: '18:00',
-      });
-      await Promise.all([loadSchedule(selectedId), loadList()]);
+      await affected.run(
+        body.isClosed
+          ? `A folga de ${shownName} em ${day}`
+          : `O horário especial de ${shownName} em ${day}`,
+        async (decision) => {
+          const res = await createEmployeeSpecialDay(employeeId, body, decision);
+          toast.success(
+            impactMessage(
+              'Exceção criada.',
+              res.data?.impact,
+              body.isClosed ? 'no dia da folga' : 'fora do horário especial',
+            ),
+          );
+          setShowNewDay(false);
+          setNewDay({
+            date: '',
+            title: '',
+            description: '',
+            isClosed: true,
+            openTime: '08:00',
+            closeTime: '18:00',
+          });
+          await Promise.all([loadSchedule(employeeId), loadList()]);
+        },
+      );
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao criar exceção');
+      toast.error(apiErrorMessage(err, 'Erro ao criar exceção'));
     } finally {
       setCreatingDay(false);
     }
   }
 
   async function handleDeleteDay() {
-    if (!selectedId || !deleteId) return;
+    const employeeId = shownEmployeeId;
+    const id = deleteId;
+    if (!employeeId || !id) return;
+    const target = specialDays.find((day) => day.id === id);
     setDeleting(true);
     try {
-      await deleteEmployeeSpecialDay(selectedId, deleteId);
-      toast.success('Exceção excluída');
-      setDeleteId(null);
-      await Promise.all([loadSchedule(selectedId), loadList()]);
+      await affected.run(
+        target
+          ? `Excluir a exceção de ${shownName} em ${formatDayMonthKey(target.date)}`
+          : 'Excluir a exceção',
+        async (decision) => {
+          const res = await deleteEmployeeSpecialDay(employeeId, id, decision);
+          toast.success(impactMessage('Exceção excluída.', res.data?.impact));
+          setDeleteId(null);
+          await Promise.all([loadSchedule(employeeId), loadList()]);
+        },
+      );
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      toast.error(error.message || 'Erro ao excluir');
+      toast.error(apiErrorMessage(err, 'Erro ao excluir'));
     } finally {
       setDeleting(false);
     }
@@ -337,7 +399,7 @@ export function ProfessionalSchedulePanel() {
             </p>
           </div>
         ) : null
-      ) : loadingSchedule || !schedule ? (
+      ) : loadingSchedule || !schedule || schedule.employee.id !== selectedId ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
@@ -400,14 +462,16 @@ export function ProfessionalSchedulePanel() {
                           variant="outline"
                           className="w-full rounded-full sm:w-auto"
                           onClick={() => setResetOpen(true)}
-                          disabled={saving}
+                          disabled={saving || !shownEmployeeId}
                         >
                           Usar horário do estúdio
                         </Button>
                       ) : null}
                       <Button
                         onClick={handleSaveHours}
-                        disabled={saving || (schedule.usesCustomHours && !hasChanges)}
+                        disabled={
+                          saving || !shownEmployeeId || (schedule.usesCustomHours && !hasChanges)
+                        }
                         className="w-full rounded-full sm:w-auto"
                       >
                         {saving ? (
@@ -634,7 +698,7 @@ export function ProfessionalSchedulePanel() {
             <Button variant="outline" onClick={() => setShowNewDay(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleCreateDay} disabled={creatingDay}>
+            <Button onClick={handleCreateDay} disabled={creatingDay || !shownEmployeeId}>
               {creatingDay ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Criar exceção
             </Button>
@@ -655,7 +719,11 @@ export function ProfessionalSchedulePanel() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button onClick={handleResetHours} disabled={saving} className="w-full">
+            <Button
+              onClick={handleResetHours}
+              disabled={saving || !shownEmployeeId}
+              className="w-full"
+            >
               {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Sim, voltar ao padrão
             </Button>
@@ -670,6 +738,8 @@ export function ProfessionalSchedulePanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AffectedAppointmentsDialog {...affected.dialogProps} />
 
       <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <DialogContent className="max-w-sm">

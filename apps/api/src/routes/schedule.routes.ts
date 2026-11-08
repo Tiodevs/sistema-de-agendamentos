@@ -51,6 +51,20 @@ const scheduleController = new ScheduleController();
  *         closeTime:
  *           type: string
  *           nullable: true
+ *   parameters:
+ *     OnAffected:
+ *       in: query
+ *       name: onAffected
+ *       schema:
+ *         type: string
+ *         enum: [keep, cancel]
+ *       description: >
+ *         O que fazer com os agendamentos marcados que ficariam sem atendimento (DOM-02).
+ *         Sem o parâmetro, havendo afetados, a resposta é 409 AFFECTED_APPOINTMENTS com a lista
+ *         em details.appointments. keep salva e mantém; cancel salva, cancela e avisa os clientes.
+ *   responses:
+ *     AffectedAppointments:
+ *       description: Há agendamentos afetados (code AFFECTED_APPOINTMENTS, lista em details.appointments)
  */
 
 /**
@@ -104,7 +118,11 @@ scheduleRouter.get('/business-hours', authMiddleware, (req, res, next) =>
  *                       type: string
  *                     isClosed:
  *                       type: boolean
+ *     parameters:
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Horários atualizados
  */
@@ -139,7 +157,11 @@ scheduleRouter.put('/business-hours', authMiddleware, adminMiddleware, (req, res
  *                 type: string
  *               isClosed:
  *                 type: boolean
+ *     parameters:
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Horário atualizado
  */
@@ -198,11 +220,13 @@ scheduleRouter.get('/special-days', authMiddleware, (req, res, next) =>
  *                 type: string
  *               closeTime:
  *                 type: string
+ *     parameters:
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
  *       201:
  *         description: Dia especial criado
  *       409:
- *         description: Já existe dia especial nesta data
+ *         description: Já existe dia especial nesta data, ou há agendamentos afetados (code AFFECTED_APPOINTMENTS, lista em details.appointments)
  */
 scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res, next) =>
   scheduleController.createSpecialDay(req, res, next),
@@ -222,6 +246,7 @@ scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res,
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     requestBody:
  *       required: true
  *       content:
@@ -243,6 +268,8 @@ scheduleRouter.post('/special-days', authMiddleware, adminMiddleware, (req, res,
  *               closeTime:
  *                 type: string
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Dia especial atualizado
  *       404:
@@ -266,7 +293,10 @@ scheduleRouter.put('/special-days/:id', authMiddleware, adminMiddleware, (req, r
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Dia especial excluído
  *       404:
@@ -329,7 +359,10 @@ scheduleRouter.get('/employees/:employeeId', authMiddleware, (req, res, next) =>
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Horário do profissional atualizado
  */
@@ -354,7 +387,10 @@ scheduleRouter.put(
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Horário próprio removido
  */
@@ -379,7 +415,10 @@ scheduleRouter.delete(
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       201:
  *         description: Exceção criada
  */
@@ -409,7 +448,10 @@ scheduleRouter.post(
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Exceção atualizada
  */
@@ -439,7 +481,10 @@ scheduleRouter.put(
  *         required: true
  *         schema:
  *           type: string
+ *       - $ref: '#/components/parameters/OnAffected'
  *     responses:
+ *       409:
+ *         $ref: '#/components/responses/AffectedAppointments'
  *       200:
  *         description: Exceção excluída
  */

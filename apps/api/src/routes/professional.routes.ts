@@ -94,7 +94,11 @@ professionalRouter.get(
  * @swagger
  * /api/professional/appointments/{id}/status:
  *   patch:
- *     summary: Atualizar status de um agendamento (CONFIRMED, IN_PROGRESS, COMPLETED)
+ *     summary: Atualizar status de um agendamento do profissional
+ *     description: >
+ *       Passa pela máquina de estados (DOM-01, DOM-03): confirmar, iniciar, concluir e registrar
+ *       falta (depois do horário); cancelar até a antecedência mínima, avisando o cliente. Cada
+ *       agendamento da lista traz `allowedStatuses`. A resposta traz `undoUntil` para o "Desfazer".
  *     tags: [Professional]
  *     security:
  *       - bearerAuth: []
@@ -115,7 +119,7 @@ professionalRouter.get(
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [CONFIRMED, IN_PROGRESS, COMPLETED]
+ *                 enum: [CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, NO_SHOW]
  *     responses:
  *       200:
  *         description: Status atualizado
@@ -123,12 +127,42 @@ professionalRouter.get(
  *         description: Agendamento não pertence ao profissional
  *       404:
  *         description: Agendamento não encontrado
+ *       409:
+ *         description: Transição inválida ou fora do prazo (codes FINAL_STATUS, TOO_EARLY, CANCELLATION_WINDOW_CLOSED)
  */
 professionalRouter.patch(
   '/appointments/:id/status',
   authMiddleware,
   professionalMiddleware,
   professionalController.updateAppointmentStatus.bind(professionalController),
+);
+
+/**
+ * @swagger
+ * /api/professional/appointments/{id}/status/undo:
+ *   post:
+ *     summary: Desfazer a última mudança de status feita pelo profissional
+ *     description: Vale por 10 minutos depois da mudança. Cancelamento não se desfaz.
+ *     tags: [Professional]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Mudança desfeita
+ *       409:
+ *         description: Nada para desfazer, prazo vencido ou horário já ocupado
+ */
+professionalRouter.post(
+  '/appointments/:id/status/undo',
+  authMiddleware,
+  professionalMiddleware,
+  professionalController.undoAppointmentStatus.bind(professionalController),
 );
 
 export { professionalRouter };

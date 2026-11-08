@@ -5,19 +5,13 @@ import {
   updateEmployeeSchema,
   assignProductsSchema,
 } from '../schemas/employee.schema';
-import { z } from 'zod';
+import { affectedDecisionQuerySchema } from '../schemas/schedule.schema';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import { httpError } from '../lib/http-error';
 
 const employeeService = new EmployeeService();
 
-function formatZodErrors(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    field: issue.path.join('.'),
-    message: issue.message,
-  }));
-}
-
+/** Erros de validação (ZodError) e de regra seguem para o errorHandler. */
 export class EmployeeController {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
@@ -65,18 +59,10 @@ export class EmployeeController {
 
       res.status(201).json({
         status: 'success',
-        message: 'Funcionário cadastrado com sucesso',
+        message: `Profissional cadastrado. Enviamos o convite de acesso para ${employee.email}.`,
         data: { employee },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -92,26 +78,22 @@ export class EmployeeController {
         data: { employee },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
 
   async toggleActive(req: Request, res: Response, next: NextFunction) {
     try {
-      const employee = await employeeService.toggleActive(req.params.id as string);
+      const { onAffected } = affectedDecisionQuerySchema.parse(req.query);
+      const { employee, impact } = await employeeService.toggleActive(req.params.id as string, {
+        actor: { role: 'ADMIN', userId: (req as AuthenticatedRequest).user.id },
+        onAffected,
+      });
 
       res.status(200).json({
         status: 'success',
         message: employee.active ? 'Funcionário ativado' : 'Funcionário desativado',
-        data: { employee },
+        data: { employee, impact },
       });
     } catch (error) {
       next(error);
@@ -131,6 +113,34 @@ export class EmployeeController {
     }
   }
 
+  async sendInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employee = await employeeService.sendInvite(req.params.id as string);
+
+      res.status(200).json({
+        status: 'success',
+        message: `Convite enviado para ${employee.email}.`,
+        data: { employee },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async revokeAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const employee = await employeeService.revokeAccess(req.params.id as string);
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Acesso ao painel removido',
+        data: { employee },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async assignProducts(req: Request, res: Response, next: NextFunction) {
     try {
       const { productIds } = assignProductsSchema.parse(req.body);
@@ -142,20 +152,28 @@ export class EmployeeController {
         data: { employee },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
 }
 
-function toPublicEmployee<T extends { email?: string; phone?: string | null }>(employee: T) {
-  const { email: _email, phone: _phone, ...rest } = employee;
+/** Para clientes: sem contato, sem dados de acesso e sem volume de agendamentos. */
+function toPublicEmployee<
+  T extends {
+    email?: string;
+    phone?: string | null;
+    userId?: string | null;
+    access?: unknown;
+    appointmentCount?: number;
+  },
+>(employee: T) {
+  const {
+    email: _email,
+    phone: _phone,
+    userId: _userId,
+    access: _access,
+    appointmentCount: _appointmentCount,
+    ...rest
+  } = employee;
   return rest;
 }

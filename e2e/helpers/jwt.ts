@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { loadApiEnv } from './load-api-env';
+import { loadE2eEnv } from './load-env';
 
 export type JwtPayload = {
   id?: string;
@@ -11,7 +11,7 @@ export type JwtPayload = {
 };
 
 export function e2eJwtSecret() {
-  loadApiEnv();
+  loadE2eEnv();
   return process.env.JWT_SECRET || '';
 }
 

@@ -6,8 +6,10 @@ export type ApiResult<T = unknown> = {
   body: {
     status?: string;
     message?: string;
+    code?: string;
     data?: T;
     errors?: Array<{ field: string; message: string }>;
+    details?: Record<string, unknown>;
   };
 };
 
@@ -20,6 +22,7 @@ export type AuthUser = {
   employeeId: string | null;
   avatarUrl: string | null;
   pendingEmail?: string | null;
+  emailVerified?: boolean;
   createdAt: string;
 };
 
@@ -99,7 +102,7 @@ export async function login(api: APIRequestContext, email: string, password: str
 
   if (result.status !== 200 || !result.body.data?.token || !result.body.data.user) {
     throw new Error(
-      `Falha no login E2E de ${email} (${result.status}): ${result.body.message || 'sem mensagem'}. Confirme o túnel do banco (\`npm run db:tunnel\`) e as variáveis E2E_USER_*.`,
+      `Falha no login E2E de ${email} (${result.status}): ${result.body.message || 'sem mensagem'}. Confirme o ambiente Docker e as variáveis E2E_* (veja e2e/README.md).`,
     );
   }
 

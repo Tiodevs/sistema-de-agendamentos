@@ -6,35 +6,41 @@ import {
   findMatchingSlot,
   isEmployeeOverlapError,
 } from '../lib/booking-slot';
+import {
+  MAX_BOOKING_DAYS_AHEAD,
+  MAX_UPCOMING_BOOKINGS_PER_CLIENT,
+  UPCOMING_BOOKING_STATUSES,
+  isBeyondBookingWindow,
+} from '../lib/booking-rules';
 import { dateKeyFromInstant } from '../lib/datetime';
 import { httpError } from '../lib/http-error';
-import { CreateAppointmentInput } from '../schemas/appointment.schema';
-import { notifyAppointmentCancelled, notifyAppointmentScheduled } from './email.service';
+import type {
+  AppointmentListFilters,
+  AppointmentStatus,
+  CreateAppointmentInput,
+} from '../schemas/appointment.schema';
+import { appointmentStatusService, type StatusActorContext } from './appointment-status.service';
+import { notifyAppointmentScheduled } from './email.service';
 import { ScheduleService } from './schedule.service';
 
 const scheduleService = new ScheduleService();
 const ACTIVE_STATUSES = {
   notIn: ['CANCELLED', 'NO_SHOW'] as Array<'CANCELLED' | 'NO_SHOW'>,
 };
-const CLIENT_CANCELLABLE = new Set(['SCHEDULED', 'CONFIRMED']);
 
 export class AppointmentService {
-  async findAll(filters?: {
-    employeeId?: string;
-    clientId?: string;
-    status?: string;
-    from?: string;
-    to?: string;
-  }) {
+  /** Os filtros chegam validados pelo `listAppointmentsQuerySchema` (datas já convertidas). */
+  async findAll(filters?: AppointmentListFilters) {
     const where: Record<string, unknown> = {};
 
     if (filters?.employeeId) where.employeeId = filters.employeeId;
     if (filters?.clientId) where.clientId = filters.clientId;
     if (filters?.status) where.status = filters.status;
     if (filters?.from || filters?.to) {
-      where.date = {};
-      if (filters.from) (where.date as Record<string, unknown>).gte = new Date(filters.from);
-      if (filters.to) (where.date as Record<string, unknown>).lte = new Date(filters.to);
+      where.date = {
+        ...(filters.from && { gte: filters.from }),
+        ...(filters.to && { lte: filters.to }),
+      };
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -59,7 +65,11 @@ export class AppointmentService {
     return mapAppointment(appointment);
   }
 
-  async create(data: CreateAppointmentInput) {
+  /**
+   * `selfService`: o próprio cliente reservando em `/book`. Aí valem as regras do SEC-02:
+   * e-mail confirmado, até 3 agendamentos futuros e até 60 dias de antecedência.
+   */
+  async create(data: CreateAppointmentInput, options: { selfService?: boolean } = {}) {
     const product = await prisma.product.findUnique({ where: { id: data.productId } });
     if (!product || !product.active) {
       throw httpError('Produto não encontrado ou inativo', 400);
@@ -84,10 +94,48 @@ export class AppointmentService {
 
     const startDate = new Date(data.date);
     const endDate = new Date(startDate.getTime() + product.duration * 60 * 1000);
+
+    if (options.selfService) {
+      if (!client.emailVerifiedAt) {
+        throw httpError(
+          `Confirme seu e-mail para agendar. Enviamos o link para ${client.email}.`,
+          403,
+          'EMAIL_NOT_VERIFIED',
+        );
+      }
+      if (isBeyondBookingWindow(startDate)) {
+        throw httpError(
+          `Dá para agendar com até ${MAX_BOOKING_DAYS_AHEAD} dias de antecedência.`,
+          400,
+          'BOOKING_TOO_FAR',
+        );
+      }
+    }
+
     await this.assertBookableInstant(data.employeeId, product.duration, startDate);
 
     try {
       const appointment = await prisma.$transaction(async (tx) => {
+        if (options.selfService) {
+          // Trava a linha do cliente antes da do profissional (sempre nessa ordem): duas reservas
+          // simultâneas do mesmo cliente não passam juntas pelo teto.
+          await tx.$queryRaw`SELECT id FROM users WHERE id = ${data.clientId} FOR UPDATE`;
+          const upcoming = await tx.appointment.count({
+            where: {
+              clientId: data.clientId,
+              status: { in: [...UPCOMING_BOOKING_STATUSES] },
+              date: { gt: new Date() },
+            },
+          });
+          if (upcoming >= MAX_UPCOMING_BOOKINGS_PER_CLIENT) {
+            throw httpError(
+              `Você já tem ${MAX_UPCOMING_BOOKINGS_PER_CLIENT} agendamentos marcados. Cancele um deles para marcar outro.`,
+              409,
+              'BOOKING_LIMIT_REACHED',
+            );
+          }
+        }
+
         await tx.$queryRaw`SELECT id FROM employees WHERE id = ${data.employeeId} FOR UPDATE`;
 
         const conflict = await tx.appointment.findFirst({
@@ -137,61 +185,35 @@ export class AppointmentService {
     }
   }
 
-  async updateStatus(id: string, status: string) {
-    const current = await this.findById(id);
-
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: {
-        status: status as
-          | 'SCHEDULED'
-          | 'CONFIRMED'
-          | 'IN_PROGRESS'
-          | 'COMPLETED'
-          | 'CANCELLED'
-          | 'NO_SHOW',
-      },
-      include: appointmentInclude,
-    });
-
-    const mapped = mapAppointment(appointment);
-
-    if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
-      notifyAppointmentCancelled({
-        id: mapped.id,
-        date: mapped.date,
-        price: mapped.price,
-        notes: mapped.notes,
-        client: mapped.client,
-        product: mapped.product,
-        employee: mapped.employee,
-      });
-    }
-
-    return mapped;
+  /** Mudança de status pela máquina de estados (DOM-01): devolve o agendamento e o prazo do "Desfazer". */
+  async updateStatus(id: string, status: AppointmentStatus, actor: StatusActorContext) {
+    return appointmentStatusService.change(id, status, actor);
   }
 
+  async undoStatus(id: string, actor: StatusActorContext) {
+    return appointmentStatusService.undo(id, actor);
+  }
+
+  /** DOM-09: o cliente cancela até a antecedência mínima; depois disso, só o estúdio. */
   async cancelOwn(id: string, clientId: string) {
-    const appointment = await this.findById(id);
-
-    if (appointment.client.id !== clientId) {
-      throw httpError('Você só pode cancelar seus próprios agendamentos', 403);
-    }
-
-    if (!CLIENT_CANCELLABLE.has(appointment.status)) {
-      throw httpError('Este agendamento não pode ser cancelado', 400);
-    }
-
-    if (new Date(appointment.date) <= new Date()) {
-      throw httpError('Não é possível cancelar um agendamento que já passou', 400);
-    }
-
-    return this.updateStatus(id, 'CANCELLED');
+    const { appointment } = await appointmentStatusService.change(id, 'CANCELLED', {
+      role: 'CLIENT',
+      userId: clientId,
+    });
+    return appointment;
   }
 
+  /**
+   * DOM-04: agendamento não é apagado, para não sumir do histórico do cliente nem dos relatórios.
+   * O caminho é cancelar (que avisa o cliente e libera o horário).
+   */
   async delete(id: string) {
     await this.findById(id);
-    await prisma.appointment.delete({ where: { id } });
+    throw httpError(
+      'Agendamentos não são excluídos, para não apagar o histórico. Cancele o agendamento.',
+      409,
+      'APPOINTMENT_DELETE_DISABLED',
+    );
   }
 
   /**

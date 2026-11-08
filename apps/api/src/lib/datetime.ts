@@ -86,6 +86,21 @@ export function zonedDate(
   return new Date(utcGuess - (asIfLocal - utcGuess) + ms);
 }
 
+/** O dia civil `dateKey` em São Paulo, como intervalo `[start, end)`. */
+export function zonedDayRange(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return {
+    start: zonedDate(year, month, day, 0, 0, 0, 0),
+    end: zonedDate(year, month, day + 1, 0, 0, 0, 0),
+  };
+}
+
+/** `DD/MM` de um dia civil `YYYY-MM-DD`, para mensagens. */
+export function formatDateKeyShort(dateKey: string) {
+  const [, month, day] = dateKey.split('-');
+  return `${day}/${month}`;
+}
+
 export function zonedDateFromKeyAndTime(dateKey: string, timeHHmm: string) {
   const [year, month, day] = dateKey.split('-').map(Number);
   const [hour, minute] = timeHHmm.split(':').map(Number);

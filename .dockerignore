@@ -1,0 +1,16 @@
+# Contexto mínimo: só entra o que as imagens usam. Fica de fora tudo que é local ou
+# sensível (.env com chaves reais, .git, auditoria/, .claude/, e2e/, docs/).
+*
+!package.json
+!package-lock.json
+!apps
+
+**/node_modules
+**/.next
+**/dist
+**/.env
+**/.env.*
+**/*.tsbuildinfo
+**/next-env.d.ts
+**/src/generated
+**/*.log

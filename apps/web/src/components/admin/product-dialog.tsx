@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2 } from 'lucide-react';
 import type { Product, ProductPayload } from '@/lib/api';
+import { formatBRLPriceInput, parseBRLPrice } from '@/lib/price';
 
 interface ProductDialogProps {
   open: boolean;
@@ -23,12 +24,7 @@ interface ProductDialogProps {
   onSubmit: (data: ProductPayload) => Promise<void>;
 }
 
-export function ProductDialog({
-  open,
-  onOpenChange,
-  product,
-  onSubmit,
-}: ProductDialogProps) {
+export function ProductDialog({ open, onOpenChange, product, onSubmit }: ProductDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -42,7 +38,7 @@ export function ProductDialog({
     if (product) {
       setName(product.name);
       setDescription(product.description || '');
-      setPrice(product.price.toFixed(2).replace('.', ','));
+      setPrice(formatBRLPriceInput(product.price));
       setDuration(String(product.duration));
     } else {
       setName('');
@@ -53,11 +49,6 @@ export function ProductDialog({
     setErrors({});
   }, [product, open]);
 
-  function parseBRLPrice(value: string): number {
-    const cleaned = value.replace(/\s/g, '').replace(',', '.');
-    return parseFloat(cleaned);
-  }
-
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
 
@@ -67,15 +58,14 @@ export function ProductDialog({
 
     const parsedPrice = parseBRLPrice(price);
     if (!price.trim()) newErrors.price = 'Preço é obrigatório';
-    else if (isNaN(parsedPrice) || parsedPrice <= 0)
-      newErrors.price = 'Preço deve ser maior que zero';
+    else if (Number.isNaN(parsedPrice)) newErrors.price = 'Preço inválido. Use o formato 1.200,00';
+    else if (parsedPrice <= 0) newErrors.price = 'Preço deve ser maior que zero';
 
     const parsedDuration = parseInt(duration, 10);
     if (!duration.trim()) newErrors.duration = 'Duração é obrigatória';
     else if (isNaN(parsedDuration) || parsedDuration < 5)
       newErrors.duration = 'Duração mínima é 5 minutos';
-    else if (parsedDuration > 480)
-      newErrors.duration = 'Duração máxima é 480 minutos (8h)';
+    else if (parsedDuration > 480) newErrors.duration = 'Duração máxima é 480 minutos (8h)';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -105,9 +95,7 @@ export function ProductDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? 'Editar Produto' : 'Novo Produto'}
-          </DialogTitle>
+          <DialogTitle>{isEditing ? 'Editar Produto' : 'Novo Produto'}</DialogTitle>
           <DialogDescription>
             {isEditing
               ? 'Altere as informações do produto abaixo.'
@@ -126,9 +114,7 @@ export function ProductDialog({
               onChange={(e) => setName(e.target.value)}
               disabled={loading}
             />
-            {errors.name && (
-              <p className="text-xs text-destructive">{errors.name}</p>
-            )}
+            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
           {/* Description */}
@@ -152,14 +138,13 @@ export function ProductDialog({
               <Label htmlFor="product-price">Preço (R$)</Label>
               <Input
                 id="product-price"
+                inputMode="decimal"
                 placeholder="50,00"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 disabled={loading}
               />
-              {errors.price && (
-                <p className="text-xs text-destructive">{errors.price}</p>
-              )}
+              {errors.price && <p className="text-xs text-destructive">{errors.price}</p>}
             </div>
 
             <div className="space-y-2">
@@ -174,9 +159,7 @@ export function ProductDialog({
                 onChange={(e) => setDuration(e.target.value)}
                 disabled={loading}
               />
-              {errors.duration && (
-                <p className="text-xs text-destructive">{errors.duration}</p>
-              )}
+              {errors.duration && <p className="text-xs text-destructive">{errors.duration}</p>}
             </div>
           </div>
 

@@ -421,11 +421,17 @@ export default function AdminDashboard() {
                   : 'Abra a agenda e marque o próximo horário da equipe.'}
               </p>
               <Button
-                onClick={() => router.push('/admin/appointments/new')}
+                onClick={() =>
+                  router.push(nextAppointment ? '/admin/appointments' : '/admin/appointments/new')
+                }
                 className="mt-6 rounded-full bg-black text-white hover:bg-black/80"
               >
-                <CalendarPlus className="size-4" />
-                {nextAppointment ? 'Mais detalhes' : 'Novo agendamento'}
+                {nextAppointment ? (
+                  <CalendarDays className="size-4" />
+                ) : (
+                  <CalendarPlus className="size-4" />
+                )}
+                {nextAppointment ? 'Ver na agenda' : 'Novo agendamento'}
               </Button>
             </section>
           </aside>

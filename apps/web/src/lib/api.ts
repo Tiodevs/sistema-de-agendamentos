@@ -3,8 +3,12 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 interface ApiResponse<T> {
   status: 'success' | 'error';
   message?: string;
+  /** Identificador estável do erro, por exemplo `EMAIL_NOT_VERIFIED`. */
+  code?: string;
   data?: T;
   errors?: Array<{ field: string; message: string }>;
+  /** Dados para a tela decidir, por exemplo a lista de agendamentos afetados (DOM-02). */
+  details?: Record<string, unknown>;
 }
 
 export interface AuthData {
@@ -17,6 +21,8 @@ export interface AuthData {
     employeeId: string | null;
     avatarUrl: string | null;
     pendingEmail?: string | null;
+    /** Sem e-mail confirmado, o cliente não reserva. Ausente em sessões antigas. */
+    emailVerified?: boolean;
     createdAt: string;
   };
   token: string;
@@ -25,19 +31,31 @@ export interface AuthData {
 export class ApiError extends Error {
   statusCode: number;
   status: 'error';
+  code?: string;
   errors?: Array<{ field: string; message: string }>;
+  details?: Record<string, unknown>;
 
   constructor(
     statusCode: number,
     message: string,
     errors?: Array<{ field: string; message: string }>,
+    code?: string,
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.status = 'error';
+    this.code = code;
     this.errors = errors;
+    this.details = details;
   }
+}
+
+/** Mensagem da API para o toast; erro de rede ou inesperado cai no texto padrão. */
+export function apiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.message) return error.message;
+  return fallback;
 }
 
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
@@ -63,7 +81,13 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, data.message || 'Erro na requisição', data.errors);
+    throw new ApiError(
+      response.status,
+      data.message || 'Erro na requisição',
+      data.errors,
+      data.code,
+      data.details,
+    );
   }
 
   return data;
@@ -114,10 +138,21 @@ export async function resetPassword(body: {
   });
 }
 
-export async function confirmEmailChange(token: string): Promise<ApiResponse<void>> {
+/** Confirma o e-mail pelo link: o do cadastro (`changed: false`) ou um novo pedido no perfil. */
+export async function confirmEmailChange(
+  token: string,
+): Promise<ApiResponse<{ changed: boolean }>> {
   return apiRequest('/api/auth/confirm-email', {
     method: 'POST',
     body: JSON.stringify({ token }),
+  });
+}
+
+export async function resendEmailVerification(): Promise<
+  ApiResponse<{ alreadyVerified: boolean }>
+> {
+  return apiRequest('/api/auth/verify-email/resend', {
+    method: 'POST',
   });
 }
 
@@ -238,6 +273,8 @@ export interface Product {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Só para o admin: com histórico, o serviço não é excluído, só desativado (DOM-04). */
+  appointmentCount?: number;
 }
 
 export interface ProductPayload {
@@ -302,6 +339,15 @@ export interface EmployeeProduct {
   assignedAt: string;
 }
 
+/**
+ * Acesso ao painel do profissional (SEC-03): conta ligada, convite em aberto, convite vencido ou
+ * sem acesso. O vínculo só acontece quando o dono do e-mail aceita o convite.
+ */
+export type EmployeeAccess =
+  | { status: 'linked'; email: string | null }
+  | { status: 'pending' | 'expired'; sentAt: string; expiresAt: string }
+  | { status: 'none' };
+
 export interface Employee {
   id: string;
   name: string;
@@ -312,6 +358,10 @@ export interface Employee {
   products: EmployeeProduct[];
   createdAt: string;
   updatedAt: string;
+  /** Só para o admin. */
+  access?: EmployeeAccess;
+  /** Só para o admin: com histórico, o profissional não é excluído, só desativado (DOM-04). */
+  appointmentCount?: number;
 }
 
 export interface EmployeePayload {
@@ -351,9 +401,29 @@ export async function updateEmployee(
   });
 }
 
-export async function toggleEmployee(id: string): Promise<ApiResponse<{ employee: Employee }>> {
-  return apiRequest(`/api/employees/${id}/toggle`, {
+/** Desativar com horários marcados responde 409 AFFECTED_APPOINTMENTS sem `onAffected` (DOM-02). */
+export async function toggleEmployee(
+  id: string,
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ employee: Employee; impact?: ImpactSummary }>> {
+  return apiRequest(`/api/employees/${id}/toggle${affectedQuery(onAffected)}`, {
     method: 'PATCH',
+  });
+}
+
+/** Envia ou reenvia o convite de acesso ao painel (SEC-03). */
+export async function sendEmployeeInvite(id: string): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}/invite`, {
+    method: 'POST',
+  });
+}
+
+/** Desfaz o vínculo com a conta e devolve a pessoa ao papel de cliente. */
+export async function revokeEmployeeAccess(
+  id: string,
+): Promise<ApiResponse<{ employee: Employee }>> {
+  return apiRequest(`/api/employees/${id}/access`, {
+    method: 'DELETE',
   });
 }
 
@@ -407,6 +477,16 @@ export interface Appointment {
   };
   createdAt: string;
   updatedAt: string;
+  /** Status que quem pediu pode marcar agora (DOM-01). A API decide; a tela só mostra. */
+  allowedStatuses?: AppointmentStatus[];
+  /** Até quando cliente e profissional cancelam sozinhos (DOM-09). Depois, só o estúdio. */
+  cancellableUntil?: string;
+}
+
+/** Resposta de uma mudança de status: até `undoUntil` dá para desfazer (cancelamento não). */
+export interface StatusChangeResult {
+  appointment: Appointment;
+  undoUntil: string | null;
 }
 
 export interface AppointmentPayload {
@@ -502,18 +582,19 @@ export async function cancelMyAppointment(
 export async function updateAppointmentStatus(
   id: string,
   status: AppointmentStatus,
-): Promise<ApiResponse<{ appointment: Appointment }>> {
+): Promise<ApiResponse<StatusChangeResult>> {
   return apiRequest(`/api/appointments/${id}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
 }
 
-export async function deleteAppointment(
+/** Desfaz a última mudança de status feita por você (até 10 min; cancelamento não). */
+export async function undoAppointmentStatus(
   id: string,
 ): Promise<ApiResponse<{ appointment: Appointment }>> {
-  return apiRequest(`/api/appointments/${id}`, {
-    method: 'DELETE',
+  return apiRequest(`/api/appointments/${id}/status/undo`, {
+    method: 'POST',
   });
 }
 
@@ -527,6 +608,38 @@ export async function getAvailableSlots(
 }
 
 /* ─── Schedule (Business Hours & Special Days) ─── */
+
+/** O que fazer com os agendamentos marcados que ficariam sem atendimento (DOM-02). */
+export type AffectedDecision = 'keep' | 'cancel';
+
+export interface AffectedAppointment {
+  id: string;
+  date: string;
+  endDate: string;
+  status: AppointmentStatus;
+  client: { id: string; name: string };
+  product: { id: string; name: string };
+  employee: { id: string; name: string };
+}
+
+export interface ImpactSummary {
+  affected: number;
+  cancelled: number;
+}
+
+function affectedQuery(onAffected?: AffectedDecision) {
+  return onAffected ? `?onAffected=${onAffected}` : '';
+}
+
+/**
+ * A API responde 409 `AFFECTED_APPOINTMENTS` quando a mudança deixaria agendamentos sem
+ * atendimento e ninguém disse o que fazer com eles. Devolve a lista, ou `null` se for outro erro.
+ */
+export function affectedAppointmentsFrom(error: unknown): AffectedAppointment[] | null {
+  if (!(error instanceof ApiError) || error.code !== 'AFFECTED_APPOINTMENTS') return null;
+  const list = error.details?.appointments;
+  return Array.isArray(list) ? (list as AffectedAppointment[]) : [];
+}
 
 export interface BusinessHour {
   id: string;
@@ -573,8 +686,9 @@ export async function getBusinessHours(): Promise<ApiResponse<{ hours: BusinessH
 
 export async function updateAllBusinessHours(
   hours: BusinessHourPayload[],
-): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
-  return apiRequest('/api/schedule/business-hours', {
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ hours: BusinessHour[]; impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/business-hours${affectedQuery(onAffected)}`, {
     method: 'PUT',
     body: JSON.stringify({ hours }),
   });
@@ -586,8 +700,9 @@ export async function getSpecialDays(): Promise<ApiResponse<{ days: SpecialDay[]
 
 export async function createSpecialDay(
   body: SpecialDayPayload,
-): Promise<ApiResponse<{ day: SpecialDay }>> {
-  return apiRequest('/api/schedule/special-days', {
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ day: SpecialDay; impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/special-days${affectedQuery(onAffected)}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -596,15 +711,19 @@ export async function createSpecialDay(
 export async function updateSpecialDay(
   id: string,
   body: Partial<SpecialDayPayload>,
-): Promise<ApiResponse<{ day: SpecialDay }>> {
-  return apiRequest(`/api/schedule/special-days/${id}`, {
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ day: SpecialDay; impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/special-days/${id}${affectedQuery(onAffected)}`, {
     method: 'PUT',
     body: JSON.stringify(body),
   });
 }
 
-export async function deleteSpecialDay(id: string): Promise<ApiResponse<{ day: SpecialDay }>> {
-  return apiRequest(`/api/schedule/special-days/${id}`, {
+export async function deleteSpecialDay(
+  id: string,
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/special-days/${id}${affectedQuery(onAffected)}`, {
     method: 'DELETE',
   });
 }
@@ -639,8 +758,9 @@ export async function getEmployeeSchedule(
 export async function updateEmployeeHours(
   employeeId: string,
   hours: BusinessHourPayload[],
-): Promise<ApiResponse<EmployeeSchedule>> {
-  return apiRequest(`/api/schedule/employees/${employeeId}/hours`, {
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<EmployeeSchedule & { impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/hours${affectedQuery(onAffected)}`, {
     method: 'PUT',
     body: JSON.stringify({ hours }),
   });
@@ -648,8 +768,9 @@ export async function updateEmployeeHours(
 
 export async function resetEmployeeHours(
   employeeId: string,
-): Promise<ApiResponse<EmployeeSchedule>> {
-  return apiRequest(`/api/schedule/employees/${employeeId}/hours`, {
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<EmployeeSchedule & { impact?: ImpactSummary }>> {
+  return apiRequest(`/api/schedule/employees/${employeeId}/hours${affectedQuery(onAffected)}`, {
     method: 'DELETE',
   });
 }
@@ -657,20 +778,43 @@ export async function resetEmployeeHours(
 export async function createEmployeeSpecialDay(
   employeeId: string,
   body: SpecialDayPayload,
-): Promise<ApiResponse<{ day: SpecialDay }>> {
-  return apiRequest(`/api/schedule/employees/${employeeId}/special-days`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ day: SpecialDay; impact?: ImpactSummary }>> {
+  return apiRequest(
+    `/api/schedule/employees/${employeeId}/special-days${affectedQuery(onAffected)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function updateEmployeeSpecialDay(
+  employeeId: string,
+  id: string,
+  body: Partial<SpecialDayPayload>,
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ day: SpecialDay; impact?: ImpactSummary }>> {
+  return apiRequest(
+    `/api/schedule/employees/${employeeId}/special-days/${id}${affectedQuery(onAffected)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export async function deleteEmployeeSpecialDay(
   employeeId: string,
   id: string,
-): Promise<ApiResponse<{ day: SpecialDay }>> {
-  return apiRequest(`/api/schedule/employees/${employeeId}/special-days/${id}`, {
-    method: 'DELETE',
-  });
+  onAffected?: AffectedDecision,
+): Promise<ApiResponse<{ impact?: ImpactSummary }>> {
+  return apiRequest(
+    `/api/schedule/employees/${employeeId}/special-days/${id}${affectedQuery(onAffected)}`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 /* ─── Dashboard ─── */
@@ -818,11 +962,52 @@ export async function getProfessionalAppointments(params?: {
 
 export async function updateProfessionalAppointmentStatus(
   id: string,
-  status: string,
-): Promise<ApiResponse<{ appointment: Appointment }>> {
+  status: AppointmentStatus,
+): Promise<ApiResponse<StatusChangeResult>> {
   return apiRequest(`/api/professional/appointments/${id}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
+  });
+}
+
+export async function undoProfessionalAppointmentStatus(
+  id: string,
+): Promise<ApiResponse<{ appointment: Appointment }>> {
+  return apiRequest(`/api/professional/appointments/${id}/status/undo`, {
+    method: 'POST',
+  });
+}
+
+/* ─── Convite do profissional (SEC-03) ─── */
+
+export interface EmployeeInvitePreview {
+  email: string;
+  employeeName: string;
+  /** Já existe conta com o e-mail do convite: a pessoa entra com a senha dela. */
+  accountExists: boolean;
+  expiresAt: string;
+}
+
+export async function previewEmployeeInvite(
+  token: string,
+): Promise<ApiResponse<{ invite: EmployeeInvitePreview }>> {
+  return apiRequest('/api/auth/invites/preview', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
+}
+
+/**
+ * Aceita o convite. Com sessão do mesmo e-mail, basta o token; sem sessão, `password` é a senha da
+ * conta existente ou a senha nova. Devolve a sessão já como profissional.
+ */
+export async function acceptEmployeeInvite(body: {
+  token: string;
+  password?: string;
+}): Promise<ApiResponse<AuthData>> {
+  return apiRequest<AuthData>('/api/auth/invites/accept', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 

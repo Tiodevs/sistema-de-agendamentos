@@ -5,12 +5,28 @@ import {
   type AppointmentEmailData,
 } from '../emails/appointment-scheduled';
 import { getInlineAttachments } from '../emails/assets';
+import { employeeInviteEmail } from '../emails/employee-invite';
+import { professionalAppointmentCancelledEmail } from '../emails/professional-appointment-cancelled';
 import { professionalNewAppointmentEmail } from '../emails/professional-new-appointment';
 import { emailChangeConfirmEmail } from '../emails/email-change-confirm';
 import { emailChangeNoticeEmail } from '../emails/email-change-notice';
+import { emailVerificationEmail } from '../emails/email-verification';
 import { passwordChangedEmail } from '../emails/password-changed';
 import { passwordResetEmail } from '../emails/password-reset';
 import { welcomeEmail } from '../emails/welcome';
+import { consumeRateLimit } from '../lib/rate-limit';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Teto de e-mails por destinatário em 24h (SEC-02). Protege a caixa de terceiros e a cota do
+ * Resend quando alguém cadastra o e-mail de outra pessoa ou repete reservas e cancelamentos.
+ */
+const DAILY_LIMIT_PER_RECIPIENT = 50;
+const DAILY_LIMIT_BY_TYPE: Record<string, number> = {
+  'email-verification': 5,
+  'password-reset': 10,
+  'employee-invite': 5,
+};
 
 export interface AppointmentMailInput {
   id: string;
@@ -20,6 +36,15 @@ export interface AppointmentMailInput {
   client: { name: string; email: string };
   product: { name: string; duration: number };
   employee: { name: string; email: string };
+}
+
+export interface CancellationMailOptions {
+  /** `client`: o próprio cliente cancelou. `studio`: admin, profissional ou mudança de expediente. */
+  cancelledBy?: 'client' | 'studio';
+  /** Motivo mostrado ao cliente quando o estúdio cancela. */
+  reason?: string | null;
+  /** Avisar também o profissional (não precisa quando foi ele quem cancelou). */
+  notifyProfessional?: boolean;
 }
 
 function toAppointmentEmailData(input: AppointmentMailInput): AppointmentEmailData {
@@ -63,8 +88,15 @@ class EmailService {
     });
   }
 
-  async sendAppointmentCancelled(appointment: AppointmentMailInput) {
-    const content = appointmentCancelledEmail(toAppointmentEmailData(appointment));
+  async sendAppointmentCancelled(
+    appointment: AppointmentMailInput,
+    options: CancellationMailOptions = {},
+  ) {
+    const content = appointmentCancelledEmail({
+      ...toAppointmentEmailData(appointment),
+      cancelledBy: options.cancelledBy,
+      reason: options.reason,
+    });
     await this.send({
       to: appointment.client.email,
       subject: content.subject,
@@ -90,6 +122,44 @@ class EmailService {
         { name: 'type', value: 'professional-new-appointment' },
         { name: 'appointment-id', value: appointment.id.slice(0, 32) },
       ],
+    });
+  }
+
+  async sendProfessionalAppointmentCancelled(
+    appointment: AppointmentMailInput,
+    options: CancellationMailOptions = {},
+  ) {
+    const content = professionalAppointmentCancelledEmail({
+      ...toAppointmentEmailData(appointment),
+      cancelledBy: options.cancelledBy,
+    });
+    await this.send({
+      to: appointment.employee.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `professional-appointment-cancelled/${appointment.id}`,
+      tags: [
+        { name: 'type', value: 'professional-appointment-cancelled' },
+        { name: 'appointment-id', value: appointment.id.slice(0, 32) },
+      ],
+    });
+  }
+
+  async sendEmployeeInvite(input: {
+    name: string;
+    email: string;
+    acceptUrl: string;
+    inviteId: string;
+  }) {
+    const content = employeeInviteEmail(input.name, input.acceptUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `employee-invite/${input.inviteId}`,
+      tags: [{ name: 'type', value: 'employee-invite' }],
     });
   }
 
@@ -153,6 +223,24 @@ class EmailService {
     });
   }
 
+  async sendEmailVerification(input: {
+    id: string;
+    name: string;
+    email: string;
+    confirmUrl: string;
+    tokenId: string;
+  }) {
+    const content = emailVerificationEmail(input.name, input.confirmUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `email-verification/${input.tokenId}`,
+      tags: [{ name: 'type', value: 'email-verification' }],
+    });
+  }
+
   async sendEmailChangeNotice(input: {
     id: string;
     name: string;
@@ -189,6 +277,12 @@ class EmailService {
       return;
     }
 
+    const type = input.tags.find((tag) => tag.name === 'type')?.value ?? 'other';
+    if (!this.withinDailyLimit(input.to, type)) {
+      console.warn(`[email] limite diário de ${type} atingido para ${input.to}: envio ignorado`);
+      return;
+    }
+
     const attachments = getInlineAttachments();
     const { data, error } = await this.resend.emails.send(
       {
@@ -215,6 +309,15 @@ class EmailService {
     if (!domain) return false;
     return !['leemia.dev'].includes(domain);
   }
+
+  private withinDailyLimit(to: string, type: string) {
+    const recipient = to.trim().toLowerCase();
+    const typeLimit = DAILY_LIMIT_BY_TYPE[type];
+    if (typeLimit && !consumeRateLimit(`email-to:${type}:${recipient}`, typeLimit, DAY_MS)) {
+      return false;
+    }
+    return consumeRateLimit(`email-to:${recipient}`, DAILY_LIMIT_PER_RECIPIENT, DAY_MS);
+  }
 }
 
 export const emailService = new EmailService();
@@ -233,8 +336,27 @@ export function notifyAppointmentScheduled(appointment: AppointmentMailInput) {
   });
 }
 
-export function notifyAppointmentCancelled(appointment: AppointmentMailInput) {
-  dispatch('appointment-cancelled', () => emailService.sendAppointmentCancelled(appointment));
+export function notifyAppointmentCancelled(
+  appointment: AppointmentMailInput,
+  options: CancellationMailOptions = {},
+) {
+  dispatch('appointment-cancelled', () =>
+    emailService.sendAppointmentCancelled(appointment, options),
+  );
+  if (options.notifyProfessional) {
+    dispatch('professional-appointment-cancelled', () =>
+      emailService.sendProfessionalAppointmentCancelled(appointment, options),
+    );
+  }
+}
+
+export function notifyEmployeeInvite(input: {
+  name: string;
+  email: string;
+  acceptUrl: string;
+  inviteId: string;
+}) {
+  dispatch('employee-invite', () => emailService.sendEmployeeInvite(input));
 }
 
 export function notifyWelcome(user: { id: string; name: string; email: string }) {
@@ -268,6 +390,16 @@ export function notifyEmailChangeConfirm(input: {
   tokenId: string;
 }) {
   dispatch('email-change-confirm', () => emailService.sendEmailChangeConfirm(input));
+}
+
+export function notifyEmailVerification(input: {
+  id: string;
+  name: string;
+  email: string;
+  confirmUrl: string;
+  tokenId: string;
+}) {
+  dispatch('email-verification', () => emailService.sendEmailVerification(input));
 }
 
 export function notifyEmailChangeNotice(input: {

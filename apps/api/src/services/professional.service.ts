@@ -5,6 +5,11 @@ import {
   mapClientAvatar,
 } from '../lib/appointment-map';
 import { DashboardService, DASHBOARD_PERIODS, type DashboardPeriod } from './dashboard.service';
+import type {
+  AppointmentStatus,
+  ProfessionalAppointmentFilters,
+} from '../schemas/appointment.schema';
+import { appointmentStatusService, type StatusActorContext } from './appointment-status.service';
 
 const dashboardService = new DashboardService();
 
@@ -52,17 +57,16 @@ export class ProfessionalService {
     };
   }
 
-  async getAppointments(
-    employeeId: string,
-    filters?: { from?: string; to?: string; status?: string },
-  ) {
+  /** Os filtros chegam validados pelo `professionalAppointmentsQuerySchema`. */
+  async getAppointments(employeeId: string, filters?: ProfessionalAppointmentFilters) {
     const where: Record<string, unknown> = { employeeId };
 
     if (filters?.status) where.status = filters.status;
     if (filters?.from || filters?.to) {
-      where.date = {};
-      if (filters.from) (where.date as Record<string, unknown>).gte = new Date(filters.from);
-      if (filters.to) (where.date as Record<string, unknown>).lte = new Date(filters.to);
+      where.date = {
+        ...(filters.from && { gte: filters.from }),
+        ...(filters.to && { lte: filters.to }),
+      };
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -85,50 +89,19 @@ export class ProfessionalService {
     });
   }
 
-  async updateAppointmentStatus(employeeId: string, appointmentId: string, status: string) {
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-    });
+  /**
+   * DOM-03: o profissional confirma, inicia, conclui, registra falta (depois do horário) e
+   * cancela (até a antecedência mínima, avisando o cliente), sempre pela máquina de estados.
+   */
+  async updateAppointmentStatus(
+    actor: StatusActorContext,
+    appointmentId: string,
+    status: AppointmentStatus,
+  ) {
+    return appointmentStatusService.change(appointmentId, status, actor);
+  }
 
-    if (!appointment) {
-      const error = new Error('Agendamento não encontrado') as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
-    }
-
-    if (appointment.employeeId !== employeeId) {
-      const error = new Error('Este agendamento não pertence a você') as Error & {
-        statusCode: number;
-      };
-      error.statusCode = 403;
-      throw error;
-    }
-
-    // Profissional só pode: CONFIRMED, IN_PROGRESS, COMPLETED
-    const allowedStatuses = ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'];
-    if (!allowedStatuses.includes(status)) {
-      const error = new Error(
-        'Status não permitido. Use: CONFIRMED, IN_PROGRESS ou COMPLETED',
-      ) as Error & { statusCode: number };
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const updated = await prisma.appointment.update({
-      where: { id: appointmentId },
-      data: { status: status as 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' },
-      include: {
-        client: { select: appointmentClientSelect },
-        product: { select: appointmentProductSelect },
-      },
-    });
-
-    const { client, ...rest } = updated;
-    return {
-      ...rest,
-      price: Number(updated.price),
-      product: { ...updated.product, price: Number(updated.product.price) },
-      client: mapClientAvatar(client),
-    };
+  async undoAppointmentStatus(actor: StatusActorContext, appointmentId: string) {
+    return appointmentStatusService.undo(appointmentId, actor);
   }
 }

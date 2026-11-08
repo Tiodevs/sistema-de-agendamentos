@@ -87,6 +87,20 @@ export const changePasswordSchema = z
     path: ['newPassword'],
   });
 
+/** SEC-03: convite do profissional. */
+export const invitePreviewSchema = z.object({
+  token: secretTokenSchema,
+});
+
+/**
+ * Com sessão do mesmo e-mail, só o token. Sem sessão: a senha da conta que já existe (prova que
+ * a conta é sua) ou a senha nova (cria a conta com o e-mail do convite, que o link já confirmou).
+ */
+export const acceptInviteSchema = z.object({
+  token: secretTokenSchema,
+  password: z.string().max(128, 'Senha deve ter no máximo 128 caracteres').optional(),
+});
+
 export const listClientsQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   includeInactive: z.enum(['true', 'false']).optional(),
@@ -104,3 +118,4 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ConfirmEmailInput = z.infer<typeof confirmEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type ListClientsQuery = z.infer<typeof listClientsQuerySchema>;
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;

@@ -7,11 +7,14 @@ import {
   ResetPasswordInput,
   ChangePasswordInput,
   ListClientsQuery,
+  AcceptInviteInput,
+  passwordSchema,
 } from '../schemas/auth.schema';
 import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import {
   notifyEmailChangeConfirm,
   notifyEmailChangeNotice,
+  notifyEmailVerification,
   notifyPasswordChanged,
   notifyPasswordReset,
   notifyWelcome,
@@ -23,13 +26,15 @@ import { signAccessToken } from '../lib/jwt';
 import {
   createPasswordResetToken,
   EMAIL_CHANGE_TTL_MS,
+  EMAIL_VERIFICATION_TTL_MS,
   hashPasswordResetToken,
   PASSWORD_RESET_TTL_MS,
 } from '../lib/password-reset-token';
 import {
   clearLoginFailures,
   consumeRateLimit,
-  isLoginLocked,
+  loginLockedError,
+  loginLockedUntil,
   registerLoginFailure,
   waitAtLeast,
 } from '../lib/rate-limit';
@@ -55,6 +60,7 @@ const profileSelect = {
   avatar: true,
   role: true,
   active: true,
+  emailVerifiedAt: true,
   createdAt: true,
   updatedAt: true,
   tokenVersion: true,
@@ -69,6 +75,7 @@ type ProfileRecord = {
   avatar: string | null;
   role: string;
   active?: boolean;
+  emailVerifiedAt?: Date | null;
   createdAt: Date;
   updatedAt?: Date;
   tokenVersion?: number;
@@ -96,6 +103,7 @@ function toPublicUser(user: ProfileRecord, pendingEmail: string | null = null) {
     employeeId,
     avatarUrl: userAvatarUrl(user.id, user.avatar, user.updatedAt),
     pendingEmail,
+    emailVerified: Boolean(user.emailVerifiedAt),
     createdAt: user.createdAt,
   };
 }
@@ -227,13 +235,41 @@ function buildClientStats(
   };
 }
 
-async function getPendingEmail(userId: string) {
+/** E-mail novo aguardando confirmação. A confirmação do próprio e-mail do cadastro não conta como troca. */
+async function getPendingEmail(userId: string, currentEmail: string) {
   const pending = await prisma.emailChangeToken.findFirst({
     where: { userId, usedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
     select: { newEmail: true },
   });
-  return pending?.newEmail ?? null;
+  if (!pending || pending.newEmail === currentEmail.trim().toLowerCase()) return null;
+  return pending.newEmail;
+}
+
+/**
+ * Gera o link que confirma `email` para a conta e invalida os anteriores. Serve tanto para a
+ * confirmação do cadastro (mesmo e-mail) quanto para a troca de e-mail no perfil.
+ */
+async function issueEmailConfirmation(userId: string, email: string, ttlMs: number) {
+  const { token, tokenHash } = createPasswordResetToken();
+  const expiresAt = new Date(Date.now() + ttlMs);
+  const now = new Date();
+
+  const created = await prisma.$transaction(async (tx) => {
+    await tx.emailChangeToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: now },
+    });
+    return tx.emailChangeToken.create({
+      data: { userId, newEmail: email, tokenHash, expiresAt },
+      select: { id: true },
+    });
+  });
+
+  return {
+    tokenId: created.id,
+    confirmUrl: `${appUrl()}/confirm-email#token=${encodeURIComponent(token)}`,
+  };
 }
 
 async function assertEmailAvailable(email: string, userId: string, employeeId?: string | null) {
@@ -250,6 +286,40 @@ async function assertEmailAvailable(email: string, userId: string, employeeId?: 
       throw httpError('E-mail já está em uso', 409);
     }
   }
+}
+
+/** Convite em aberto, válido e de um profissional ativo e ainda sem conta (SEC-03). */
+async function findOpenInvite(token: string) {
+  const record = await prisma.employeeInvite.findUnique({
+    where: { tokenHash: hashPasswordResetToken(token) },
+    select: {
+      id: true,
+      email: true,
+      expiresAt: true,
+      usedAt: true,
+      employeeId: true,
+      employee: { select: { id: true, name: true, active: true, userId: true } },
+    },
+  });
+
+  if (!record || record.usedAt || record.expiresAt <= new Date()) {
+    throw httpError(
+      'Convite inválido ou expirado. Peça um novo ao estúdio.',
+      400,
+      'INVITE_INVALID',
+    );
+  }
+  if (record.employee.userId) {
+    throw httpError('Este convite já foi aceito.', 409, 'ALREADY_LINKED');
+  }
+  if (!record.employee.active) {
+    throw httpError(
+      'Este cadastro de profissional está desativado. Fale com o estúdio.',
+      409,
+      'EMPLOYEE_INACTIVE',
+    );
+  }
+  return record;
 }
 
 async function syncLinkedEmployee(
@@ -297,10 +367,18 @@ export class AuthService {
 
     const token = generateToken(user);
 
-    notifyWelcome({
+    // A conta já entra, mas só reserva depois de confirmar o e-mail (SEC-02). As boas-vindas
+    // vão depois da confirmação.
+    const verification = await issueEmailConfirmation(
+      user.id,
+      user.email,
+      EMAIL_VERIFICATION_TTL_MS,
+    );
+    notifyEmailVerification({
       id: user.id,
       name: user.name,
       email: user.email,
+      ...verification,
     });
 
     return {
@@ -309,32 +387,208 @@ export class AuthService {
     };
   }
 
+  /** Reenvia o link de confirmação do e-mail do cadastro. */
+  async resendEmailVerification(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, active: true, emailVerifiedAt: true },
+    });
+
+    if (!user?.active) {
+      throw httpError('Usuário não encontrado', 404);
+    }
+
+    if (user.emailVerifiedAt) {
+      return { alreadyVerified: true };
+    }
+
+    const verification = await issueEmailConfirmation(
+      user.id,
+      user.email,
+      EMAIL_VERIFICATION_TTL_MS,
+    );
+    notifyEmailVerification({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      ...verification,
+    });
+
+    return { alreadyVerified: false };
+  }
+
   async login(data: LoginInput, ip = 'unknown') {
+    // O bloqueio é do par e-mail + IP: quem erra a senha de outro lugar não tranca o dono da conta.
+    const lockedUntil = loginLockedUntil(data.email, ip);
+    if (lockedUntil) {
+      throw loginLockedError(lockedUntil);
+    }
+
     const user = await prisma.user.findUnique({
       where: { email: data.email },
       select: { ...profileSelect, password: true },
     });
 
     const passwordOk = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
-    const locked = isLoginLocked(data.email);
     const valid = Boolean(user?.active && passwordOk);
 
-    if (locked || !valid || !user) {
-      if (!locked) {
-        registerLoginFailure(data.email);
-        if (!consumeRateLimit(`login-fail:${ip}`, LOGIN_FAIL_IP_LIMIT, LOGIN_FAIL_IP_WINDOW_MS)) {
-          throw httpError('Muitas tentativas. Tente novamente em instantes.', 429);
-        }
+    if (!valid || !user) {
+      const lockedNow = registerLoginFailure(data.email, ip);
+      if (!consumeRateLimit(`login-fail:${ip}`, LOGIN_FAIL_IP_LIMIT, LOGIN_FAIL_IP_WINDOW_MS)) {
+        throw httpError('Muitas tentativas. Tente novamente em instantes.', 429);
+      }
+      if (lockedNow) {
+        throw loginLockedError(lockedNow);
       }
       throw httpError(INVALID_LOGIN_MESSAGE, 401);
     }
 
-    clearLoginFailures(data.email);
+    clearLoginFailures(data.email, ip);
     const { password: _password, ...safeUser } = user;
 
     return {
       user: toPublicUser(safeUser),
       token: generateToken(safeUser),
+    };
+  }
+
+  /** O que a tela do convite precisa para decidir entre "entrar" e "criar senha". */
+  async previewEmployeeInvite(token: string) {
+    const record = await findOpenInvite(token);
+    const account = await prisma.user.findUnique({
+      where: { email: record.email },
+      select: { id: true },
+    });
+    return {
+      email: record.email,
+      employeeName: record.employee.name,
+      accountExists: Boolean(account),
+      expiresAt: record.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * SEC-03: liga a conta ao profissional. O token prova que a pessoa recebe o e-mail; a sessão ou
+   * a senha provam que a conta é dela. Quem cadastrou o e-mail antes com outra senha não ganha o
+   * painel: o dono do e-mail usa "Esqueci a senha" e retoma a conta.
+   */
+  async acceptEmployeeInvite(input: AcceptInviteInput, sessionUserId?: string, ip = 'unknown') {
+    const record = await findOpenInvite(input.token);
+    const email = record.email.trim().toLowerCase();
+
+    let userId: string | null = null;
+    let newAccountPassword: string | null = null;
+
+    if (sessionUserId) {
+      const sessionUser = await prisma.user.findUnique({
+        where: { id: sessionUserId },
+        select: { id: true, email: true },
+      });
+      if (!sessionUser || sessionUser.email.trim().toLowerCase() !== email) {
+        throw httpError(
+          `Este convite é para ${email}. Saia da conta atual e entre com esse e-mail.`,
+          403,
+          'INVITE_EMAIL_MISMATCH',
+        );
+      }
+      userId = sessionUser.id;
+    } else {
+      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (existing) {
+        if (!input.password) {
+          throw httpError('Entre com a senha da sua conta para aceitar.', 401, 'PASSWORD_REQUIRED');
+        }
+        // Mesmo caminho do login: bloqueio por e-mail + IP e mensagem genérica.
+        const session = await this.login({ email, password: input.password }, ip);
+        userId = session.user.id;
+      } else {
+        const parsed = passwordSchema.safeParse(input.password ?? '');
+        if (!parsed.success) {
+          throw httpError(
+            input.password ? parsed.error.issues[0].message : 'Crie uma senha para aceitar.',
+            400,
+            'WEAK_PASSWORD',
+          );
+        }
+        newAccountPassword = await bcrypt.hash(parsed.data, BCRYPT_ROUNDS);
+      }
+    }
+
+    const now = new Date();
+    const linkedUserId = await prisma.$transaction(async (tx) => {
+      const consumed = await tx.employeeInvite.updateMany({
+        where: { id: record.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw httpError(
+          'Convite inválido ou expirado. Peça um novo ao estúdio.',
+          400,
+          'INVITE_INVALID',
+        );
+      }
+
+      const accountId =
+        userId ??
+        (
+          await tx.user.create({
+            data: {
+              name: record.employee.name,
+              email,
+              password: newAccountPassword!,
+              // O link chegou neste e-mail: a pessoa provou que é dona dele.
+              emailVerifiedAt: now,
+            },
+            select: { id: true },
+          })
+        ).id;
+
+      const otherLink = await tx.employee.findUnique({ where: { userId: accountId } });
+      if (otherLink) {
+        throw httpError(
+          'Esta conta já está ligada a outro profissional.',
+          409,
+          'ACCOUNT_ALREADY_LINKED',
+        );
+      }
+
+      const linked = await tx.employee.updateMany({
+        where: { id: record.employeeId, userId: null },
+        data: { userId: accountId },
+      });
+      if (linked.count !== 1) {
+        throw httpError('Este convite já foi aceito.', 409, 'ALREADY_LINKED');
+      }
+
+      await tx.employeeInvite.updateMany({
+        where: { employeeId: record.employeeId, usedAt: null },
+        data: { usedAt: now },
+      });
+
+      const account = await tx.user.findUniqueOrThrow({
+        where: { id: accountId },
+        select: { role: true, emailVerifiedAt: true },
+      });
+      await tx.user.update({
+        where: { id: accountId },
+        data: {
+          // Admin continua admin; cliente passa a abrir o painel do profissional.
+          ...(account.role === 'USER' && { role: 'EMPLOYEE' }),
+          ...(!account.emailVerifiedAt && { emailVerifiedAt: now }),
+        },
+      });
+
+      return accountId;
+    });
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: linkedUserId },
+      select: profileSelect,
+    });
+
+    return {
+      user: toPublicUser(user),
+      token: generateToken(user),
     };
   }
 
@@ -355,7 +609,7 @@ export class AuthService {
       throw httpError('Usuário não encontrado', 404);
     }
 
-    return toPublicUser(user, await getPendingEmail(userId));
+    return toPublicUser(user, await getPendingEmail(userId, user.email));
   }
 
   async updateProfile(userId: string, data: UpdateProfileInput) {
@@ -389,32 +643,21 @@ export class AuthService {
       phone,
     });
 
-    let pendingEmail = await getPendingEmail(userId);
+    let pendingEmail = await getPendingEmail(userId, user.email);
 
     if (emailChanged) {
-      const { token, tokenHash } = createPasswordResetToken();
-      const expiresAt = new Date(Date.now() + EMAIL_CHANGE_TTL_MS);
-      const now = new Date();
-
-      const created = await prisma.$transaction(async (tx) => {
-        await tx.emailChangeToken.updateMany({
-          where: { userId, usedAt: null },
-          data: { usedAt: now },
-        });
-        return tx.emailChangeToken.create({
-          data: { userId, newEmail: data.email, tokenHash, expiresAt },
-          select: { id: true },
-        });
-      });
-
+      const { tokenId, confirmUrl } = await issueEmailConfirmation(
+        userId,
+        data.email,
+        EMAIL_CHANGE_TTL_MS,
+      );
       pendingEmail = data.email;
-      const confirmUrl = `${appUrl()}/confirm-email#token=${encodeURIComponent(token)}`;
 
       notifyEmailChangeConfirm({
         id: user.id,
         name: user.name,
         email: data.email,
-        tokenId: created.id,
+        tokenId,
         confirmUrl,
       });
       notifyEmailChangeNotice({
@@ -422,13 +665,17 @@ export class AuthService {
         name: user.name,
         email: current.email,
         newEmail: data.email,
-        tokenId: created.id,
+        tokenId,
       });
     }
 
     return toPublicUser(user, pendingEmail);
   }
 
+  /**
+   * Consome o link e confirma o e-mail: o do cadastro (mesmo endereço) ou um novo pedido no
+   * perfil. Nos dois casos, quem abriu o link provou ser dono do endereço.
+   */
   async confirmEmailChange(token: string) {
     const tokenHash = hashPasswordResetToken(token);
     const record = await prisma.emailChangeToken.findUnique({
@@ -440,7 +687,14 @@ export class AuthService {
         expiresAt: true,
         usedAt: true,
         user: {
-          select: { id: true, active: true, employee: { select: { id: true } } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            active: true,
+            emailVerifiedAt: true,
+            employee: { select: { id: true } },
+          },
         },
       },
     });
@@ -464,7 +718,7 @@ export class AuthService {
 
       await tx.user.update({
         where: { id: record.userId },
-        data: { email: record.newEmail },
+        data: { email: record.newEmail, emailVerifiedAt: now },
       });
 
       await tx.emailChangeToken.updateMany({
@@ -474,6 +728,13 @@ export class AuthService {
     });
 
     await syncLinkedEmployee(record.userId, { email: record.newEmail });
+
+    const changed = record.newEmail !== record.user.email.trim().toLowerCase();
+    if (!record.user.emailVerifiedAt) {
+      notifyWelcome({ id: record.user.id, name: record.user.name, email: record.newEmail });
+    }
+
+    return { changed };
   }
 
   async updateAvatar(
@@ -496,7 +757,7 @@ export class AuthService {
       select: profileSelect,
     });
 
-    const publicUser = toPublicUser(user, await getPendingEmail(userId));
+    const publicUser = toPublicUser(user, await getPendingEmail(userId, user.email));
     await syncLinkedEmployee(userId, { avatarUrl: publicUser.avatarUrl });
 
     if (current.avatar && current.avatar !== key) {
@@ -519,7 +780,7 @@ export class AuthService {
     }
 
     if (!current.avatar) {
-      return toPublicUser(current, await getPendingEmail(userId));
+      return toPublicUser(current, await getPendingEmail(userId, current.email));
     }
 
     const user = await prisma.user.update({
@@ -533,7 +794,7 @@ export class AuthService {
       console.error('[storage] falha ao remover avatar', error);
     });
 
-    return toPublicUser(user, await getPendingEmail(userId));
+    return toPublicUser(user, await getPendingEmail(userId, user.email));
   }
 
   async getAvatarFile(userId: string) {
@@ -674,7 +935,16 @@ export class AuthService {
         userId: true,
         expiresAt: true,
         usedAt: true,
-        user: { select: { id: true, name: true, email: true, active: true, password: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            active: true,
+            password: true,
+            emailVerifiedAt: true,
+          },
+        },
       },
     });
 
@@ -706,6 +976,8 @@ export class AuthService {
           password: hashedPassword,
           passwordChangedAt,
           tokenVersion: { increment: 1 },
+          // O link chegou nesse e-mail: a pessoa provou que é dona dele.
+          ...(!record.user.emailVerifiedAt && { emailVerifiedAt: passwordChangedAt }),
         },
       });
 
@@ -714,6 +986,9 @@ export class AuthService {
         data: { usedAt: passwordChangedAt },
       });
     });
+
+    // Quem provou ser dono do e-mail volta a entrar na hora, de qualquer IP.
+    clearLoginFailures(record.user.email);
 
     notifyPasswordChanged({
       id: record.user.id,
@@ -783,7 +1058,7 @@ export class AuthService {
     });
 
     return {
-      user: toPublicUser(updated, await getPendingEmail(userId)),
+      user: toPublicUser(updated, await getPendingEmail(userId, updated.email)),
       token: generateToken(updated),
     };
   }

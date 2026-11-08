@@ -1,8 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
+import { assertDisposableDatabase } from '../../apps/api/src/lib/database-guard';
 import { E2E_NOTE_PREFIX, USER_A, USER_B } from './env';
-import { loadApiEnv } from './load-api-env';
+import { loadE2eEnv } from './load-env';
 
 const trackedEmails = new Set<string>();
 
@@ -27,15 +29,22 @@ function reusableEmails() {
   return new Set([USER_A.email.trim().toLowerCase(), USER_B.email.trim().toLowerCase()]);
 }
 
-async function withPrisma<T>(fn: (prisma: PrismaClient) => Promise<T>): Promise<T> {
-  loadApiEnv();
-  const connectionString = process.env.DATABASE_URL;
+/** E2E_DATABASE_URL (ou a montada a partir do .env da raiz); sem ela, a DATABASE_URL do ambiente. */
+export function e2eDatabaseUrl() {
+  loadE2eEnv();
+  const connectionString = process.env.E2E_DATABASE_URL || process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error(
-      'DATABASE_URL não encontrada (apps/api/.env). Sem ela o E2E não consegue apagar os dados de teste.',
+      'Defina E2E_DATABASE_URL (Postgres do Docker). Sem ela o E2E não consegue apagar os dados de teste.',
     );
   }
+  // O E2E faz hard delete: nunca no Postgres de produção.
+  assertDisposableDatabase(connectionString, 'E2E');
+  return connectionString;
+}
 
+async function withPrisma<T>(fn: (prisma: PrismaClient) => Promise<T>): Promise<T> {
+  const connectionString = e2eDatabaseUrl();
   const adapter = new PrismaPg({ connectionString });
   const prisma = new PrismaClient({ adapter });
   try {
@@ -93,13 +102,71 @@ async function upsertE2eUser(
       password,
       phone: '(11) 90000-0001',
       role: 'USER',
+      emailVerifiedAt: new Date(),
     },
     update: {
       name: account.name,
       password,
       active: true,
+      // As contas reutilizadas são sempre clientes, mesmo que um teste de convite tenha caído no meio.
+      role: 'USER',
+      emailVerifiedAt: new Date(),
     },
   });
+}
+
+/** Grava um convite com token conhecido (o real só existe no e-mail, que `@leemia.dev` não recebe). */
+export async function insertEmployeeInvite(data: {
+  employeeId: string;
+  email: string;
+  token: string;
+}) {
+  const tokenHash = createHash('sha256').update(data.token).digest('hex');
+  await withPrisma((prisma) =>
+    prisma.employeeInvite.create({
+      data: {
+        employeeId: data.employeeId,
+        email: data.email.trim().toLowerCase(),
+        tokenHash,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    }),
+  );
+}
+
+/** Garante o papel de uma conta de teste (limpeza dos testes de convite). */
+export async function setUserRole(email: string, role: 'USER' | 'EMPLOYEE') {
+  const value = email.trim().toLowerCase();
+  if (!isDisposableE2eEmail(value)) return;
+  await withPrisma((prisma) => prisma.user.updateMany({ where: { email: value }, data: { role } }));
+}
+
+/** Marca o e-mail como confirmado sem passar pela caixa de entrada (contas `@leemia.dev` não recebem e-mail). */
+export async function markEmailVerified(email: string) {
+  const value = email.trim().toLowerCase();
+  await withPrisma((prisma) =>
+    prisma.user.update({ where: { email: value }, data: { emailVerifiedAt: new Date() } }),
+  );
+}
+
+/**
+ * Grava um agendamento direto no banco, sem passar pela API. Serve para provar que a trava
+ * `appointments_employee_no_overlap` existe no Postgres, e não só no código.
+ */
+export async function insertAppointmentDirectly(data: {
+  clientId: string;
+  employeeId: string;
+  productId: string;
+  date: Date;
+  endDate: Date;
+  notes: string;
+}) {
+  return withPrisma((prisma) =>
+    prisma.appointment.create({
+      data: { ...data, price: 0, status: 'SCHEDULED' },
+      select: { id: true },
+    }),
+  );
 }
 
 /**
@@ -115,6 +182,18 @@ export async function sweepE2eDatabase(mode: 'leftover' | 'all') {
     const marked = await prisma.appointment.deleteMany({
       where: { notes: { startsWith: E2E_NOTE_PREFIX } },
     });
+
+    // Dias especiais e profissionais temporários dos testes da Fase 1.
+    await prisma.specialDay.deleteMany({ where: { title: { startsWith: E2E_NOTE_PREFIX } } });
+    const tempEmployees = await prisma.employee.findMany({
+      where: { email: { startsWith: 'e2e.employee.' } },
+      select: { id: true, userId: true },
+    });
+    if (tempEmployees.length) {
+      const ids = tempEmployees.map((employee) => employee.id);
+      await prisma.appointment.deleteMany({ where: { employeeId: { in: ids } } });
+      await prisma.employee.deleteMany({ where: { id: { in: ids } } });
+    }
 
     const candidates = await prisma.user.findMany({
       where: {

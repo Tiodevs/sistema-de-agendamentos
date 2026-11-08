@@ -5,7 +5,7 @@ import { BRAND_NAME } from '@/components/logo';
 import { LeemiaMark } from '@/components/brand/leemia-mark';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { SplitText } from 'gsap/SplitText';
-import { INTRO_DURATION_MS } from '@/lib/intro-script';
+import { INTRO_DURATION_MS, INTRO_LATE_START_MS, isIntroForced } from '@/lib/intro-script';
 
 if (typeof window !== 'undefined') {
   gsap.registerPlugin(SplitText);
@@ -25,6 +25,14 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
       const root = rootRef.current;
       if (!root) return;
 
+      // Rede lenta: a página já apareceu por baixo do véu; começar a abertura agora seria pior
+      // do que pular. `/?intro=1` (demonstração) toca mesmo assim.
+      if (performance.now() > INTRO_LATE_START_MS && !isIntroForced(window.location.search)) {
+        onReveal();
+        onComplete();
+        return;
+      }
+
       const mark = root.querySelector('.intro-mark');
       const glow = root.querySelector('.intro-glow');
       const fill = root.querySelectorAll('.leemia-fill');
@@ -37,8 +45,6 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
       const bottomPanel = root.querySelector('.intro-panel-bottom');
       const brand = root.querySelector('.intro-brand');
       const skip = root.querySelector('.intro-skip');
-      const bar = root.querySelector('.intro-bar');
-      const percent = root.querySelector('.intro-percent');
 
       if (
         !mark ||
@@ -49,9 +55,7 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
         !topPanel ||
         !bottomPanel ||
         !brand ||
-        !skip ||
-        !bar ||
-        !percent
+        !skip
       ) {
         onReveal();
         onComplete();
@@ -61,7 +65,6 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
       let revealed = false;
       let finished = false;
       let split: InstanceType<typeof SplitText> | null = null;
-      const progress = { value: 0 };
       const exitStart = 3.2;
       const total = INTRO_DURATION_MS / 1000;
 
@@ -100,7 +103,6 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
       gsap.set(split.chars, { y: 18, autoAlpha: 0 });
       gsap.set(tagline, { y: 10, autoAlpha: 0 });
       gsap.set(skip, { autoAlpha: 0 });
-      gsap.set(bar, { scaleX: 0, transformOrigin: '0% 50%' });
 
       const tl = gsap.timeline({
         defaults: { ease: 'power3.out' },
@@ -125,19 +127,6 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
         )
         .to(split.chars, { y: 0, autoAlpha: 1, duration: 0.5, stagger: 0.045 }, 0.85)
         .to(tagline, { y: 0, autoAlpha: 1, duration: 0.4 }, 1.05)
-        .to(bar, { scaleX: 1, duration: exitStart, ease: 'power1.inOut' }, 0)
-        .to(
-          progress,
-          {
-            value: 100,
-            duration: exitStart,
-            ease: 'power1.inOut',
-            onUpdate: () => {
-              percent.textContent = `${Math.round(progress.value)}%`;
-            },
-          },
-          0,
-        )
         .fromTo(
           splitLine,
           { drawSVG: '0% 0%' },
@@ -224,14 +213,6 @@ export function LeemiaIntro({ onReveal, onComplete }: LeemiaIntroProps) {
           <p className="intro-tagline mt-2 text-sm tracking-[0.22em] text-[#34C3DD]/80 uppercase">
             Agendamentos
           </p>
-          <div className="intro-progress mt-10 w-52">
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className="intro-bar h-full w-full rounded-full bg-[#34C3DD]" />
-            </div>
-            <p className="mt-2 text-center text-xs text-white/50">
-              Carregando <span className="intro-percent tabular-nums">0%</span>
-            </p>
-          </div>
         </div>
       </div>
 

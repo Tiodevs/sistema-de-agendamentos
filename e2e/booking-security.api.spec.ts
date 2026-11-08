@@ -120,7 +120,10 @@ test.describe('Lacunas de segurança e privacidade', { tag: '@gap' }, () => {
     page,
     professional,
   }) => {
-    test.skip(!professional.token, 'Conta de profissional do seed não autenticou neste ambiente');
+    test.skip(
+      !professional.token,
+      'Profissional do seed não autenticou: defina E2E_PROFESSIONAL_PASSWORD ou SEED_PASSWORD',
+    );
     await injectSession(page, professional.token, professional.user);
     await page.goto('/book');
     await page.waitForLoadState('networkidle');
