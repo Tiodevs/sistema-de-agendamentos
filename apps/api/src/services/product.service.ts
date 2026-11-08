@@ -1,30 +1,42 @@
 import { prisma } from '../config/database';
+import { httpError } from '../lib/http-error';
 import { CreateProductInput, UpdateProductInput } from '../schemas/product.schema';
 
+type ProductRecord = {
+  price: unknown;
+  _count?: { appointments: number };
+};
+
+function toProduct<T extends ProductRecord>(product: T) {
+  const { _count, ...rest } = product;
+  return {
+    ...rest,
+    price: Number(product.price),
+    ...(_count && { appointmentCount: _count.appointments }),
+  };
+}
+
 export class ProductService {
-  async findAll(includeInactive = false) {
+  /** `withStats` (só admin): inclui `appointmentCount`, que decide entre excluir e desativar. */
+  async findAll(includeInactive = false, withStats = false) {
     const where = includeInactive ? {} : { active: true };
     const products = await prisma.product.findMany({
       where,
       orderBy: { name: 'asc' },
+      ...(withStats && { include: { _count: { select: { appointments: true } } } }),
     });
 
-    return products.map((p) => ({
-      ...p,
-      price: Number(p.price),
-    }));
+    return products.map(toProduct);
   }
 
   async findById(id: string) {
     const product = await prisma.product.findUnique({ where: { id } });
 
     if (!product) {
-      const error = new Error('Produto não encontrado') as Error & { statusCode: number };
-      error.statusCode = 404;
-      throw error;
+      throw httpError('Produto não encontrado', 404);
     }
 
-    return { ...product, price: Number(product.price) };
+    return toProduct(product);
   }
 
   async create(data: CreateProductInput) {
@@ -37,7 +49,7 @@ export class ProductService {
       },
     });
 
-    return { ...product, price: Number(product.price) };
+    return toProduct(product);
   }
 
   async update(id: string, data: UpdateProductInput) {
@@ -53,7 +65,7 @@ export class ProductService {
       },
     });
 
-    return { ...product, price: Number(product.price) };
+    return toProduct(product);
   }
 
   async toggleActive(id: string) {
@@ -64,11 +76,29 @@ export class ProductService {
       data: { active: !existing.active },
     });
 
-    return { ...product, price: Number(product.price) };
+    return toProduct(product);
   }
 
+  /** DOM-04: serviço com agendamentos no histórico não é excluído; o caminho é desativar. */
   async delete(id: string) {
-    await this.findById(id);
+    const product = await prisma.product.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { appointments: true } } },
+    });
+    if (!product) {
+      throw httpError('Produto não encontrado', 404);
+    }
+
+    const count = product._count.appointments;
+    if (count > 0) {
+      throw httpError(
+        `Este serviço tem ${count === 1 ? '1 agendamento' : `${count} agendamentos`} no histórico. Desative em vez de excluir, para manter o histórico.`,
+        409,
+        'HAS_APPOINTMENTS',
+        { appointments: count },
+      );
+    }
+
     await prisma.product.delete({ where: { id } });
   }
 }

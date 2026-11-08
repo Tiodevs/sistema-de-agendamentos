@@ -55,6 +55,16 @@ export const updateSpecialDaySchema = createSpecialDaySchema.partial();
 
 export const upsertAllEmployeeHoursSchema = upsertAllBusinessHoursSchema;
 
+/**
+ * DOM-02: o que fazer com os agendamentos marcados que ficariam fora do expediente. Sem o
+ * parâmetro, a API responde 409 `AFFECTED_APPOINTMENTS` com a lista para a tela perguntar.
+ */
+export const affectedDecisionQuerySchema = z.object({
+  onAffected: z
+    .enum(['keep', 'cancel'], { error: 'Use onAffected=keep ou onAffected=cancel' })
+    .optional(),
+});
+
 export const createEmployeeSpecialDaySchema = createSpecialDaySchema;
 export const updateEmployeeSpecialDaySchema = updateSpecialDaySchema;
 

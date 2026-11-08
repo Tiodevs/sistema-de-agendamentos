@@ -219,7 +219,10 @@ appointmentRouter.post(
  * /api/appointments/{id}/cancel:
  *   patch:
  *     summary: Cancelar meu agendamento (Usuário)
- *     description: Permite que o usuário cancele um agendamento próprio.
+ *     description: >
+ *       Permite que o usuário cancele um agendamento próprio, marcado ou confirmado, até a
+ *       antecedência mínima (CANCELLATION_NOTICE_HOURS, padrão 2h). O cliente e o profissional
+ *       recebem o aviso por e-mail. Cada agendamento da resposta traz `cancellableUntil`.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -236,6 +239,8 @@ appointmentRouter.post(
  *         description: Sem permissão
  *       404:
  *         description: Agendamento não encontrado
+ *       409:
+ *         description: Fora do prazo (code CANCELLATION_WINDOW_CLOSED) ou status final
  */
 appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
   appointmentController.cancelOwn(req, res, next),
@@ -338,6 +343,11 @@ appointmentRouter.post('/', authMiddleware, adminMiddleware, (req, res, next) =>
  * /api/appointments/{id}/status:
  *   patch:
  *     summary: Atualizar status do agendamento (Admin)
+ *     description: >
+ *       Passa pela máquina de estados (DOM-01). Concluído, cancelado e falta são finais;
+ *       concluir e registrar falta só depois do início. Cada agendamento das listas traz
+ *       `allowedStatuses` com as mudanças possíveis agora. A resposta traz `undoUntil`: até lá, a
+ *       mudança pode ser desfeita em `POST /appointments/{id}/status/undo` (cancelamento não).
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -364,6 +374,8 @@ appointmentRouter.post('/', authMiddleware, adminMiddleware, (req, res, next) =>
  *         description: Status atualizado
  *       404:
  *         description: Agendamento não encontrado
+ *       409:
+ *         description: Transição inválida (codes FINAL_STATUS, INVALID_TRANSITION, TOO_EARLY, STATUS_CHANGED)
  */
 appointmentRouter.patch('/:id/status', authMiddleware, adminMiddleware, (req, res, next) =>
   appointmentController.updateStatus(req, res, next),
@@ -371,9 +383,10 @@ appointmentRouter.patch('/:id/status', authMiddleware, adminMiddleware, (req, re
 
 /**
  * @swagger
- * /api/appointments/{id}:
- *   delete:
- *     summary: Excluir agendamento (Admin)
+ * /api/appointments/{id}/status/undo:
+ *   post:
+ *     summary: Desfazer a última mudança de status (Admin)
+ *     description: Vale para a mudança feita pela mesma pessoa há até 10 minutos. Cancelamento não se desfaz.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -385,9 +398,37 @@ appointmentRouter.patch('/:id/status', authMiddleware, adminMiddleware, (req, re
  *           type: string
  *     responses:
  *       200:
- *         description: Agendamento excluído
+ *         description: Mudança desfeita
+ *       409:
+ *         description: Nada para desfazer, prazo vencido ou horário já ocupado
+ */
+appointmentRouter.post('/:id/status/undo', authMiddleware, adminMiddleware, (req, res, next) =>
+  appointmentController.undoStatus(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/appointments/{id}:
+ *   delete:
+ *     summary: Excluir agendamento (desativado)
+ *     description: >
+ *       Agendamentos não são excluídos, para preservar o histórico (DOM-04). Responde sempre 409
+ *       APPOINTMENT_DELETE_DISABLED: use `PATCH /appointments/{id}/status` com CANCELLED.
+ *     deprecated: true
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
  *       404:
  *         description: Agendamento não encontrado
+ *       409:
+ *         description: Exclusão desativada (code APPOINTMENT_DELETE_DISABLED)
  */
 appointmentRouter.delete('/:id', authMiddleware, adminMiddleware, (req, res, next) =>
   appointmentController.delete(req, res, next),

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppointmentService } from '../services/appointment.service';
+import { withStatusActions } from '../services/appointment-status.service';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import {
   createAppointmentSchema,
@@ -8,27 +9,27 @@ import {
   listAppointmentsQuerySchema,
   myAppointmentsQuerySchema,
 } from '../schemas/appointment.schema';
-import { z } from 'zod';
+import { httpError } from '../lib/http-error';
 
 const appointmentService = new AppointmentService();
 
-function formatZodErrors(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    field: issue.path.join('.'),
-    message: issue.message,
-  }));
+function adminActor(req: Request) {
+  return { role: 'ADMIN' as const, userId: (req as AuthenticatedRequest).user.id };
 }
 
+/** Erros de validação (ZodError) e de regra seguem para o errorHandler. */
 export class AppointmentController {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
-      // Filtro inválido vira ZodError, e o errorHandler responde 400.
       const filters = listAppointmentsQuerySchema.parse(req.query);
       const appointments = await appointmentService.findAll(filters);
+      const now = new Date();
 
       res.status(200).json({
         status: 'success',
-        data: { appointments },
+        data: {
+          appointments: appointments.map((item) => withStatusActions(item, 'ADMIN', now)),
+        },
       });
     } catch (error) {
       next(error);
@@ -44,10 +45,15 @@ export class AppointmentController {
         clientId: authReq.user.id,
         status,
       });
+      const now = new Date();
 
       res.status(200).json({
         status: 'success',
-        data: { appointments: appointments.map(stripEmployeeContact) },
+        data: {
+          appointments: appointments.map((item) =>
+            withStatusActions(stripEmployeeContact(item), 'CLIENT', now),
+          ),
+        },
       });
     } catch (error) {
       next(error);
@@ -60,18 +66,16 @@ export class AppointmentController {
       const appointment = await appointmentService.findById(req.params.id as string);
 
       if (!canReadAppointment(authReq, appointment)) {
-        res.status(403).json({
-          status: 'error',
-          message: 'Você não tem permissão para ver este agendamento',
-        });
-        return;
+        throw httpError('Você não tem permissão para ver este agendamento', 403);
       }
 
       res.status(200).json({
         status: 'success',
         data: {
           appointment:
-            authReq.user.role === 'USER' ? stripEmployeeContact(appointment) : appointment,
+            authReq.user.role === 'ADMIN'
+              ? withStatusActions(appointment, 'ADMIN')
+              : withStatusActions(stripEmployeeContact(appointment), 'CLIENT'),
         },
       });
     } catch (error) {
@@ -87,17 +91,9 @@ export class AppointmentController {
       res.status(201).json({
         status: 'success',
         message: 'Agendamento criado com sucesso',
-        data: { appointment },
+        data: { appointment: withStatusActions(appointment, 'ADMIN') },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -107,11 +103,7 @@ export class AppointmentController {
     try {
       const authReq = req as AuthenticatedRequest;
       if (authReq.user.role !== 'USER') {
-        res.status(403).json({
-          status: 'error',
-          message: 'Apenas clientes podem usar o fluxo de agendamento',
-        });
-        return;
+        throw httpError('Apenas clientes podem usar o fluxo de agendamento', 403);
       }
 
       const body = { ...req.body, clientId: authReq.user.id };
@@ -121,17 +113,9 @@ export class AppointmentController {
       res.status(201).json({
         status: 'success',
         message: 'Agendamento criado com sucesso',
-        data: { appointment: stripEmployeeContact(appointment) },
+        data: { appointment: withStatusActions(stripEmployeeContact(appointment), 'CLIENT') },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -139,22 +123,35 @@ export class AppointmentController {
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const { status } = updateAppointmentStatusSchema.parse(req.body);
-      const appointment = await appointmentService.updateStatus(req.params.id as string, status);
+      const { appointment, undoUntil } = await appointmentService.updateStatus(
+        req.params.id as string,
+        status,
+        adminActor(req),
+      );
 
       res.status(200).json({
         status: 'success',
         message: 'Status atualizado com sucesso',
-        data: { appointment },
+        data: { appointment: withStatusActions(appointment, 'ADMIN'), undoUntil },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
+      next(error);
+    }
+  }
+
+  async undoStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const appointment = await appointmentService.undoStatus(
+        req.params.id as string,
+        adminActor(req),
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Mudança desfeita',
+        data: { appointment: withStatusActions(appointment, 'ADMIN') },
+      });
+    } catch (error) {
       next(error);
     }
   }
@@ -162,11 +159,7 @@ export class AppointmentController {
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       await appointmentService.delete(req.params.id as string);
-
-      res.status(200).json({
-        status: 'success',
-        message: 'Agendamento excluído com sucesso',
-      });
+      res.status(200).json({ status: 'success' });
     } catch (error) {
       next(error);
     }
@@ -181,7 +174,7 @@ export class AppointmentController {
       res.status(200).json({
         status: 'success',
         message: 'Agendamento cancelado com sucesso',
-        data: { appointment: stripEmployeeContact(updated) },
+        data: { appointment: withStatusActions(stripEmployeeContact(updated), 'CLIENT') },
       });
     } catch (error) {
       next(error);
@@ -202,14 +195,6 @@ export class AppointmentController {
         data: availability,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }

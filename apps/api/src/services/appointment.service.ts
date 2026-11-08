@@ -19,14 +19,14 @@ import type {
   AppointmentStatus,
   CreateAppointmentInput,
 } from '../schemas/appointment.schema';
-import { notifyAppointmentCancelled, notifyAppointmentScheduled } from './email.service';
+import { appointmentStatusService, type StatusActorContext } from './appointment-status.service';
+import { notifyAppointmentScheduled } from './email.service';
 import { ScheduleService } from './schedule.service';
 
 const scheduleService = new ScheduleService();
 const ACTIVE_STATUSES = {
   notIn: ['CANCELLED', 'NO_SHOW'] as Array<'CANCELLED' | 'NO_SHOW'>,
 };
-const CLIENT_CANCELLABLE = new Set(['SCHEDULED', 'CONFIRMED']);
 
 export class AppointmentService {
   /** Os filtros chegam validados pelo `listAppointmentsQuerySchema` (datas já convertidas). */
@@ -185,53 +185,35 @@ export class AppointmentService {
     }
   }
 
-  async updateStatus(id: string, status: AppointmentStatus) {
-    const current = await this.findById(id);
-
-    const appointment = await prisma.appointment.update({
-      where: { id },
-      data: { status },
-      include: appointmentInclude,
-    });
-
-    const mapped = mapAppointment(appointment);
-
-    if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
-      notifyAppointmentCancelled({
-        id: mapped.id,
-        date: mapped.date,
-        price: mapped.price,
-        notes: mapped.notes,
-        client: mapped.client,
-        product: mapped.product,
-        employee: mapped.employee,
-      });
-    }
-
-    return mapped;
+  /** Mudança de status pela máquina de estados (DOM-01): devolve o agendamento e o prazo do "Desfazer". */
+  async updateStatus(id: string, status: AppointmentStatus, actor: StatusActorContext) {
+    return appointmentStatusService.change(id, status, actor);
   }
 
+  async undoStatus(id: string, actor: StatusActorContext) {
+    return appointmentStatusService.undo(id, actor);
+  }
+
+  /** DOM-09: o cliente cancela até a antecedência mínima; depois disso, só o estúdio. */
   async cancelOwn(id: string, clientId: string) {
-    const appointment = await this.findById(id);
-
-    if (appointment.client.id !== clientId) {
-      throw httpError('Você só pode cancelar seus próprios agendamentos', 403);
-    }
-
-    if (!CLIENT_CANCELLABLE.has(appointment.status)) {
-      throw httpError('Este agendamento não pode ser cancelado', 400);
-    }
-
-    if (new Date(appointment.date) <= new Date()) {
-      throw httpError('Não é possível cancelar um agendamento que já passou', 400);
-    }
-
-    return this.updateStatus(id, 'CANCELLED');
+    const { appointment } = await appointmentStatusService.change(id, 'CANCELLED', {
+      role: 'CLIENT',
+      userId: clientId,
+    });
+    return appointment;
   }
 
+  /**
+   * DOM-04: agendamento não é apagado, para não sumir do histórico do cliente nem dos relatórios.
+   * O caminho é cancelar (que avisa o cliente e libera o horário).
+   */
   async delete(id: string) {
     await this.findById(id);
-    await prisma.appointment.delete({ where: { id } });
+    throw httpError(
+      'Agendamentos não são excluídos, para não apagar o histórico. Cancele o agendamento.',
+      409,
+      'APPOINTMENT_DELETE_DISABLED',
+    );
   }
 
   /**

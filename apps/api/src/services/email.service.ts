@@ -5,6 +5,8 @@ import {
   type AppointmentEmailData,
 } from '../emails/appointment-scheduled';
 import { getInlineAttachments } from '../emails/assets';
+import { employeeInviteEmail } from '../emails/employee-invite';
+import { professionalAppointmentCancelledEmail } from '../emails/professional-appointment-cancelled';
 import { professionalNewAppointmentEmail } from '../emails/professional-new-appointment';
 import { emailChangeConfirmEmail } from '../emails/email-change-confirm';
 import { emailChangeNoticeEmail } from '../emails/email-change-notice';
@@ -23,6 +25,7 @@ const DAILY_LIMIT_PER_RECIPIENT = 50;
 const DAILY_LIMIT_BY_TYPE: Record<string, number> = {
   'email-verification': 5,
   'password-reset': 10,
+  'employee-invite': 5,
 };
 
 export interface AppointmentMailInput {
@@ -33,6 +36,15 @@ export interface AppointmentMailInput {
   client: { name: string; email: string };
   product: { name: string; duration: number };
   employee: { name: string; email: string };
+}
+
+export interface CancellationMailOptions {
+  /** `client`: o próprio cliente cancelou. `studio`: admin, profissional ou mudança de expediente. */
+  cancelledBy?: 'client' | 'studio';
+  /** Motivo mostrado ao cliente quando o estúdio cancela. */
+  reason?: string | null;
+  /** Avisar também o profissional (não precisa quando foi ele quem cancelou). */
+  notifyProfessional?: boolean;
 }
 
 function toAppointmentEmailData(input: AppointmentMailInput): AppointmentEmailData {
@@ -76,8 +88,15 @@ class EmailService {
     });
   }
 
-  async sendAppointmentCancelled(appointment: AppointmentMailInput) {
-    const content = appointmentCancelledEmail(toAppointmentEmailData(appointment));
+  async sendAppointmentCancelled(
+    appointment: AppointmentMailInput,
+    options: CancellationMailOptions = {},
+  ) {
+    const content = appointmentCancelledEmail({
+      ...toAppointmentEmailData(appointment),
+      cancelledBy: options.cancelledBy,
+      reason: options.reason,
+    });
     await this.send({
       to: appointment.client.email,
       subject: content.subject,
@@ -103,6 +122,44 @@ class EmailService {
         { name: 'type', value: 'professional-new-appointment' },
         { name: 'appointment-id', value: appointment.id.slice(0, 32) },
       ],
+    });
+  }
+
+  async sendProfessionalAppointmentCancelled(
+    appointment: AppointmentMailInput,
+    options: CancellationMailOptions = {},
+  ) {
+    const content = professionalAppointmentCancelledEmail({
+      ...toAppointmentEmailData(appointment),
+      cancelledBy: options.cancelledBy,
+    });
+    await this.send({
+      to: appointment.employee.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `professional-appointment-cancelled/${appointment.id}`,
+      tags: [
+        { name: 'type', value: 'professional-appointment-cancelled' },
+        { name: 'appointment-id', value: appointment.id.slice(0, 32) },
+      ],
+    });
+  }
+
+  async sendEmployeeInvite(input: {
+    name: string;
+    email: string;
+    acceptUrl: string;
+    inviteId: string;
+  }) {
+    const content = employeeInviteEmail(input.name, input.acceptUrl);
+    await this.send({
+      to: input.email,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+      idempotencyKey: `employee-invite/${input.inviteId}`,
+      tags: [{ name: 'type', value: 'employee-invite' }],
     });
   }
 
@@ -279,8 +336,27 @@ export function notifyAppointmentScheduled(appointment: AppointmentMailInput) {
   });
 }
 
-export function notifyAppointmentCancelled(appointment: AppointmentMailInput) {
-  dispatch('appointment-cancelled', () => emailService.sendAppointmentCancelled(appointment));
+export function notifyAppointmentCancelled(
+  appointment: AppointmentMailInput,
+  options: CancellationMailOptions = {},
+) {
+  dispatch('appointment-cancelled', () =>
+    emailService.sendAppointmentCancelled(appointment, options),
+  );
+  if (options.notifyProfessional) {
+    dispatch('professional-appointment-cancelled', () =>
+      emailService.sendProfessionalAppointmentCancelled(appointment, options),
+    );
+  }
+}
+
+export function notifyEmployeeInvite(input: {
+  name: string;
+  email: string;
+  acceptUrl: string;
+  inviteId: string;
+}) {
+  dispatch('employee-invite', () => emailService.sendEmployeeInvite(input));
 }
 
 export function notifyWelcome(user: { id: string; name: string; email: string }) {

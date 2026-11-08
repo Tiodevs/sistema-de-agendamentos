@@ -21,6 +21,18 @@ function readBearerToken(req: Request) {
   return { token: parts[1] };
 }
 
+/**
+ * Sessão opcional: sem `Authorization`, segue como visitante; com o header, valida como o
+ * `authMiddleware` (token inválido ou expirado responde 401).
+ */
+export const optionalAuthMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.headers.authorization) {
+    next();
+    return;
+  }
+  authMiddleware(req, res, next);
+};
+
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const bearer = readBearerToken(req);
 

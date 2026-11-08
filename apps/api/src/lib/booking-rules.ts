@@ -21,3 +21,20 @@ export function lastBookableDateKey(now = new Date()) {
 export function isBeyondBookingWindow(start: Date, now = new Date()) {
   return dateKeyFromInstant(start) > lastBookableDateKey(now);
 }
+
+/**
+ * Antecedência mínima para o cliente cancelar sozinho (DOM-09) e para o profissional cancelar
+ * pelo painel (DOM-03). Depois do prazo, só o estúdio cancela, ou o horário vira falta.
+ * Configurável por `CANCELLATION_NOTICE_HOURS` (de 0 a 168, aceita fração: 0.5 = 30 min).
+ */
+export const DEFAULT_CANCELLATION_NOTICE_HOURS = 2;
+const MAX_CANCELLATION_NOTICE_HOURS = 168;
+
+export function cancellationNoticeMinutes(raw = process.env.CANCELLATION_NOTICE_HOURS) {
+  const value = raw === undefined || raw.trim() === '' ? NaN : Number(raw);
+  const hours =
+    Number.isFinite(value) && value >= 0 && value <= MAX_CANCELLATION_NOTICE_HOURS
+      ? value
+      : DEFAULT_CANCELLATION_NOTICE_HOURS;
+  return Math.round(hours * 60);
+}

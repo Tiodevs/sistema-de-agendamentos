@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/auth.controller';
 import { adminMiddleware } from '../middlewares/admin.middleware';
-import { authMiddleware } from '../middlewares/auth.middleware';
+import { authMiddleware, optionalAuthMiddleware } from '../middlewares/auth.middleware';
 import { rateLimitByIp, rateLimitByUser } from '../middlewares/rate-limit.middleware';
 import { handleAvatarUpload } from '../middlewares/upload.middleware';
 
@@ -278,6 +278,80 @@ authRouter.post(
   '/confirm-email',
   rateLimitByIp('confirm-email', 20, 60 * 60 * 1000),
   (req, res, next) => authController.confirmEmail(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/invites/preview:
+ *   post:
+ *     summary: Dados do convite de profissional
+ *     description: >
+ *       SEC-03. Devolve o e-mail convidado, o nome do profissional e se já existe conta com esse
+ *       e-mail, para a tela escolher entre "entrar" e "criar senha".
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Convite válido
+ *       400:
+ *         description: Convite inválido ou expirado (code INVITE_INVALID)
+ *       409:
+ *         description: Já aceito (ALREADY_LINKED) ou profissional desativado (EMPLOYEE_INACTIVE)
+ */
+authRouter.post(
+  '/invites/preview',
+  rateLimitByIp('invite-preview', 30, 60 * 60 * 1000),
+  (req, res, next) => authController.previewInvite(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/invites/accept:
+ *   post:
+ *     summary: Aceitar o convite de profissional
+ *     description: >
+ *       SEC-03. Liga a conta ao profissional e devolve a sessão (user + token). Com sessão, o e-mail
+ *       da conta precisa ser o do convite. Sem sessão: `password` é a senha da conta que já existe
+ *       com esse e-mail, ou a senha nova (cria a conta, já com o e-mail confirmado).
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Convite aceito
+ *       400:
+ *         description: Convite inválido (INVITE_INVALID) ou senha nova fraca (WEAK_PASSWORD)
+ *       401:
+ *         description: Senha da conta ausente (PASSWORD_REQUIRED) ou incorreta
+ *       403:
+ *         description: Sessão de outro e-mail (INVITE_EMAIL_MISMATCH)
+ *       409:
+ *         description: Já aceito, conta ligada a outro profissional ou profissional desativado
+ */
+authRouter.post(
+  '/invites/accept',
+  rateLimitByIp('invite-accept', 20, 60 * 60 * 1000),
+  optionalAuthMiddleware,
+  (req, res, next) => authController.acceptInvite(req, res, next),
 );
 
 /**

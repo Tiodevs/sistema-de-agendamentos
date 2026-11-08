@@ -7,11 +7,14 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   confirmEmailSchema,
+  invitePreviewSchema,
+  acceptInviteSchema,
   changePasswordSchema,
   listClientsQuerySchema,
 } from '../schemas/auth.schema';
 import { z } from 'zod';
 import { clientIp } from '../lib/request-ip';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 const authService = new AuthService();
 
@@ -253,6 +256,33 @@ export class AuthController {
         });
         return;
       }
+      next(error);
+    }
+  }
+
+  /** SEC-03: dados do convite para a tela decidir entre entrar e criar senha. */
+  async previewInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { token } = invitePreviewSchema.parse(req.body);
+      const invite = await authService.previewEmployeeInvite(token);
+      res.status(200).json({ status: 'success', data: { invite } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** SEC-03: aceita o convite e devolve a sessão já com o papel de profissional. */
+  async acceptInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = acceptInviteSchema.parse(req.body);
+      const sessionUserId = (req as Partial<AuthenticatedRequest>).user?.id;
+      const result = await authService.acceptEmployeeInvite(data, sessionUserId, clientIp(req));
+      res.status(200).json({
+        status: 'success',
+        message: 'Convite aceito. Sua agenda já está disponível.',
+        data: result,
+      });
+    } catch (error) {
       next(error);
     }
   }

@@ -61,6 +61,22 @@ describe('errorHandler (SEC-05 / DOM-06)', () => {
     });
   });
 
+  it('repassa details de erros 4xx da aplicação (ex.: agendamentos afetados)', () => {
+    const body = toErrorBody(
+      httpError('2 agendamentos ficam fora', 409, 'AFFECTED_APPOINTMENTS', {
+        appointments: [{ id: 'a' }, { id: 'b' }],
+      }),
+    );
+    assert.equal(body.statusCode, 409);
+    assert.equal(body.code, 'AFFECTED_APPOINTMENTS');
+    assert.deepEqual(body.details, { appointments: [{ id: 'a' }, { id: 'b' }] });
+  });
+
+  it('não repassa details em 5xx', () => {
+    const body = toErrorBody(httpError('falhou', 503, 'X', { segredo: 'interno' }));
+    assert.equal(body.details, undefined);
+  });
+
   it('ZodError vira 400 com os campos', () => {
     const result = z.object({ status: z.enum(['A']) }).safeParse({ status: 'B' });
     assert.equal(result.success, false);

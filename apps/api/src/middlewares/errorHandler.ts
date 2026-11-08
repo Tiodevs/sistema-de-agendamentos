@@ -8,7 +8,15 @@ type ErrorBody = {
   message: string;
   code?: string;
   errors?: Array<{ field: string; message: string }>;
+  details?: Record<string, unknown>;
 };
+
+function exposedDetails(err: unknown) {
+  const details = (err as { details?: unknown } | null)?.details;
+  return details && typeof details === 'object' && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : undefined;
+}
 
 const INTERNAL_MESSAGE = 'Erro interno do servidor';
 const UNAVAILABLE_MESSAGE = 'Serviço temporariamente indisponível. Tente novamente em instantes.';
@@ -58,7 +66,13 @@ export function toErrorBody(err: unknown): ErrorBody {
   const exposed = (err as { expose?: unknown } | null)?.expose === true;
   if (status && exposed && err instanceof Error) {
     const code = errorCode(err);
-    return { statusCode: status, message: err.message, ...(code && { code }) };
+    const details = status < 500 ? exposedDetails(err) : undefined;
+    return {
+      statusCode: status,
+      message: err.message,
+      ...(code && { code }),
+      ...(details && { details }),
+    };
   }
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -122,6 +136,7 @@ export const errorHandler = (err: unknown, req: Request, res: Response, next: Ne
     message: body.message,
     ...(body.code && { code: body.code }),
     ...(body.errors && { errors: body.errors }),
+    ...(body.details && { details: body.details }),
     ...(body.statusCode >= 500 && requestId && { requestId }),
   });
 };

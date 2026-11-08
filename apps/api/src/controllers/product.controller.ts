@@ -23,7 +23,7 @@ export class ProductController {
         throw httpError('Acesso restrito a administradores', 403);
       }
 
-      const products = await productService.findAll(includeInactive);
+      const products = await productService.findAll(includeInactive, authReq.user.role === 'ADMIN');
 
       res.status(200).json({
         status: 'success',

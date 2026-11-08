@@ -29,6 +29,7 @@ model User {
   employee            Employee?
   passwordResetTokens PasswordResetToken[]
   emailChangeTokens   EmailChangeToken[]
+  statusChanges       AppointmentStatusChange[]
 
   @@map("users")
 }
@@ -95,8 +96,26 @@ model Employee {
   appointments  Appointment[]
   businessHours EmployeeBusinessHour[]
   specialDays   EmployeeSpecialDay[]
+  invites       EmployeeInvite[]
 
   @@map("employees")
+}
+
+/// Convite para o profissional ligar a própria conta ao cadastro (SEC-03). O vínculo só acontece
+/// quando quem recebeu o e-mail aceita; criar o profissional não promove nenhuma conta sozinho.
+model EmployeeInvite {
+  id         String    @id @default(cuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  email      String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId, usedAt])
+  @@index([expiresAt])
+  @@map("employee_invites")
 }
 
 model EmployeeProduct {
@@ -141,10 +160,33 @@ model Appointment {
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
 
+  statusChanges AppointmentStatusChange[]
+
   @@index([employeeId, date])
   @@index([clientId])
   @@index([date])
   @@map("appointments")
+}
+
+/// Histórico das mudanças de status (DOM-01): quem mudou, de onde para onde e por quê. Também é
+/// a base do "Desfazer": a última mudança, feita há pouco pela mesma pessoa, pode ser revertida.
+model AppointmentStatusChange {
+  id            String            @id @default(cuid())
+  appointmentId String
+  appointment   Appointment       @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  fromStatus    AppointmentStatus
+  toStatus      AppointmentStatus
+  /// ADMIN, EMPLOYEE ou CLIENT.
+  actorRole     String
+  actorId       String?
+  actor         User?             @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  reason        String?
+  revertedAt    DateTime?
+  createdAt     DateTime          @default(now())
+
+  @@index([appointmentId, createdAt])
+  @@index([actorId])
+  @@map("appointment_status_changes")
 }
 
 model BusinessHour {

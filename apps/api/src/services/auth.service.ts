@@ -7,6 +7,8 @@ import {
   ResetPasswordInput,
   ChangePasswordInput,
   ListClientsQuery,
+  AcceptInviteInput,
+  passwordSchema,
 } from '../schemas/auth.schema';
 import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import {
@@ -286,6 +288,40 @@ async function assertEmailAvailable(email: string, userId: string, employeeId?: 
   }
 }
 
+/** Convite em aberto, válido e de um profissional ativo e ainda sem conta (SEC-03). */
+async function findOpenInvite(token: string) {
+  const record = await prisma.employeeInvite.findUnique({
+    where: { tokenHash: hashPasswordResetToken(token) },
+    select: {
+      id: true,
+      email: true,
+      expiresAt: true,
+      usedAt: true,
+      employeeId: true,
+      employee: { select: { id: true, name: true, active: true, userId: true } },
+    },
+  });
+
+  if (!record || record.usedAt || record.expiresAt <= new Date()) {
+    throw httpError(
+      'Convite inválido ou expirado. Peça um novo ao estúdio.',
+      400,
+      'INVITE_INVALID',
+    );
+  }
+  if (record.employee.userId) {
+    throw httpError('Este convite já foi aceito.', 409, 'ALREADY_LINKED');
+  }
+  if (!record.employee.active) {
+    throw httpError(
+      'Este cadastro de profissional está desativado. Fale com o estúdio.',
+      409,
+      'EMPLOYEE_INACTIVE',
+    );
+  }
+  return record;
+}
+
 async function syncLinkedEmployee(
   userId: string,
   data: { name?: string; email?: string; phone?: string | null; avatarUrl?: string | null },
@@ -413,6 +449,146 @@ export class AuthService {
     return {
       user: toPublicUser(safeUser),
       token: generateToken(safeUser),
+    };
+  }
+
+  /** O que a tela do convite precisa para decidir entre "entrar" e "criar senha". */
+  async previewEmployeeInvite(token: string) {
+    const record = await findOpenInvite(token);
+    const account = await prisma.user.findUnique({
+      where: { email: record.email },
+      select: { id: true },
+    });
+    return {
+      email: record.email,
+      employeeName: record.employee.name,
+      accountExists: Boolean(account),
+      expiresAt: record.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * SEC-03: liga a conta ao profissional. O token prova que a pessoa recebe o e-mail; a sessão ou
+   * a senha provam que a conta é dela. Quem cadastrou o e-mail antes com outra senha não ganha o
+   * painel: o dono do e-mail usa "Esqueci a senha" e retoma a conta.
+   */
+  async acceptEmployeeInvite(input: AcceptInviteInput, sessionUserId?: string, ip = 'unknown') {
+    const record = await findOpenInvite(input.token);
+    const email = record.email.trim().toLowerCase();
+
+    let userId: string | null = null;
+    let newAccountPassword: string | null = null;
+
+    if (sessionUserId) {
+      const sessionUser = await prisma.user.findUnique({
+        where: { id: sessionUserId },
+        select: { id: true, email: true },
+      });
+      if (!sessionUser || sessionUser.email.trim().toLowerCase() !== email) {
+        throw httpError(
+          `Este convite é para ${email}. Saia da conta atual e entre com esse e-mail.`,
+          403,
+          'INVITE_EMAIL_MISMATCH',
+        );
+      }
+      userId = sessionUser.id;
+    } else {
+      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (existing) {
+        if (!input.password) {
+          throw httpError('Entre com a senha da sua conta para aceitar.', 401, 'PASSWORD_REQUIRED');
+        }
+        // Mesmo caminho do login: bloqueio por e-mail + IP e mensagem genérica.
+        const session = await this.login({ email, password: input.password }, ip);
+        userId = session.user.id;
+      } else {
+        const parsed = passwordSchema.safeParse(input.password ?? '');
+        if (!parsed.success) {
+          throw httpError(
+            input.password ? parsed.error.issues[0].message : 'Crie uma senha para aceitar.',
+            400,
+            'WEAK_PASSWORD',
+          );
+        }
+        newAccountPassword = await bcrypt.hash(parsed.data, BCRYPT_ROUNDS);
+      }
+    }
+
+    const now = new Date();
+    const linkedUserId = await prisma.$transaction(async (tx) => {
+      const consumed = await tx.employeeInvite.updateMany({
+        where: { id: record.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw httpError(
+          'Convite inválido ou expirado. Peça um novo ao estúdio.',
+          400,
+          'INVITE_INVALID',
+        );
+      }
+
+      const accountId =
+        userId ??
+        (
+          await tx.user.create({
+            data: {
+              name: record.employee.name,
+              email,
+              password: newAccountPassword!,
+              // O link chegou neste e-mail: a pessoa provou que é dona dele.
+              emailVerifiedAt: now,
+            },
+            select: { id: true },
+          })
+        ).id;
+
+      const otherLink = await tx.employee.findUnique({ where: { userId: accountId } });
+      if (otherLink) {
+        throw httpError(
+          'Esta conta já está ligada a outro profissional.',
+          409,
+          'ACCOUNT_ALREADY_LINKED',
+        );
+      }
+
+      const linked = await tx.employee.updateMany({
+        where: { id: record.employeeId, userId: null },
+        data: { userId: accountId },
+      });
+      if (linked.count !== 1) {
+        throw httpError('Este convite já foi aceito.', 409, 'ALREADY_LINKED');
+      }
+
+      await tx.employeeInvite.updateMany({
+        where: { employeeId: record.employeeId, usedAt: null },
+        data: { usedAt: now },
+      });
+
+      const account = await tx.user.findUniqueOrThrow({
+        where: { id: accountId },
+        select: { role: true, emailVerifiedAt: true },
+      });
+      await tx.user.update({
+        where: { id: accountId },
+        data: {
+          // Admin continua admin; cliente passa a abrir o painel do profissional.
+          ...(account.role === 'USER' && { role: 'EMPLOYEE' }),
+          ...(!account.emailVerifiedAt && { emailVerifiedAt: now }),
+        },
+      });
+
+      return accountId;
+    });
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: linkedUserId },
+      select: profileSelect,
+    });
+
+    return {
+      user: toPublicUser(user),
+      token: generateToken(user),
     };
   }
 

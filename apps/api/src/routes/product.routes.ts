@@ -238,6 +238,8 @@ productRouter.patch('/:id/toggle', authMiddleware, adminMiddleware, (req, res, n
  *         description: Produto excluído
  *       404:
  *         description: Produto não encontrado
+ *       409:
+ *         description: Tem agendamentos no histórico (code HAS_APPOINTMENTS); desative em vez de excluir
  */
 productRouter.delete('/:id', authMiddleware, adminMiddleware, (req, res, next) =>
   productController.delete(req, res, next),

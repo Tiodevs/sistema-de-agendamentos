@@ -230,6 +230,10 @@ employeeRouter.put('/:id', authMiddleware, adminMiddleware, (req, res, next) =>
  * /api/employees/{id}/toggle:
  *   patch:
  *     summary: Ativar/desativar funcionário (Admin)
+ *     description: >
+ *       Desativar alguém com horários futuros marcados responde 409 AFFECTED_APPOINTMENTS com a
+ *       lista (details.appointments). Repita com onAffected=keep (mantém) ou onAffected=cancel
+ *       (cancela e avisa os clientes por e-mail).
  *     tags: [Employees]
  *     security:
  *       - bearerAuth: []
@@ -239,9 +243,16 @@ employeeRouter.put('/:id', authMiddleware, adminMiddleware, (req, res, next) =>
  *         required: true
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: onAffected
+ *         schema:
+ *           type: string
+ *           enum: [keep, cancel]
  *     responses:
  *       200:
- *         description: Status do funcionário alterado
+ *         description: Status do funcionário alterado (data.impact traz afetados e cancelados)
+ *       409:
+ *         description: Há agendamentos futuros (code AFFECTED_APPOINTMENTS)
  */
 employeeRouter.patch('/:id/toggle', authMiddleware, adminMiddleware, (req, res, next) =>
   employeeController.toggleActive(req, res, next),
@@ -266,9 +277,61 @@ employeeRouter.patch('/:id/toggle', authMiddleware, adminMiddleware, (req, res, 
  *         description: Funcionário excluído
  *       404:
  *         description: Funcionário não encontrado
+ *       409:
+ *         description: Tem agendamentos no histórico (code HAS_APPOINTMENTS); desative em vez de excluir
  */
 employeeRouter.delete('/:id', authMiddleware, adminMiddleware, (req, res, next) =>
   employeeController.delete(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/employees/{id}/invite:
+ *   post:
+ *     summary: Enviar ou reenviar o convite de acesso ao painel (Admin)
+ *     description: >
+ *       SEC-03: o vínculo entre o profissional e uma conta só acontece quando o dono do e-mail
+ *       aceita o convite (vale 7 dias). Um novo convite invalida o anterior.
+ *     tags: [Employees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Convite enviado (employee.access.status = pending)
+ *       409:
+ *         description: Já tem acesso (ALREADY_LINKED) ou está desativado (EMPLOYEE_INACTIVE)
+ */
+employeeRouter.post('/:id/invite', authMiddleware, adminMiddleware, (req, res, next) =>
+  employeeController.sendInvite(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/employees/{id}/access:
+ *   delete:
+ *     summary: Remover o acesso ao painel (Admin)
+ *     description: Desfaz o vínculo com a conta, cancela convites em aberto e devolve a conta ao papel de cliente.
+ *     tags: [Employees]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Acesso removido
+ */
+employeeRouter.delete('/:id/access', authMiddleware, adminMiddleware, (req, res, next) =>
+  employeeController.revokeAccess(req, res, next),
 );
 
 /**

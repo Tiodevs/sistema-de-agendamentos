@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ScheduleService } from '../services/schedule.service';
+import { ScheduleService, type ScheduleMutationOptions } from '../services/schedule.service';
 import {
   upsertBusinessHourSchema,
   upsertAllBusinessHoursSchema,
@@ -8,18 +8,19 @@ import {
   upsertAllEmployeeHoursSchema,
   createEmployeeSpecialDaySchema,
   updateEmployeeSpecialDaySchema,
+  affectedDecisionQuerySchema,
 } from '../schemas/schedule.schema';
-import { z } from 'zod';
+import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 
 const scheduleService = new ScheduleService();
 
-function formatZodErrors(error: z.ZodError) {
-  return error.issues.map((issue) => ({
-    field: issue.path.join('.'),
-    message: issue.message,
-  }));
+/** Admin que salva + decisão sobre os agendamentos afetados (`?onAffected=keep|cancel`). */
+function mutationOptions(req: Request): ScheduleMutationOptions {
+  const { onAffected } = affectedDecisionQuerySchema.parse(req.query);
+  return { actor: { role: 'ADMIN', userId: (req as AuthenticatedRequest).user.id }, onAffected };
 }
 
+/** Erros de validação (ZodError) e de regra seguem para o errorHandler. */
 export class ScheduleController {
   /* ─── Business Hours ─── */
 
@@ -38,21 +39,13 @@ export class ScheduleController {
   async upsertBusinessHour(req: Request, res: Response, next: NextFunction) {
     try {
       const data = upsertBusinessHourSchema.parse(req.body);
-      const hour = await scheduleService.upsertBusinessHour(data);
+      const { hour, impact } = await scheduleService.upsertBusinessHour(data, mutationOptions(req));
       res.status(200).json({
         status: 'success',
         message: 'Horário atualizado com sucesso',
-        data: { hour },
+        data: { hour, impact },
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -60,21 +53,13 @@ export class ScheduleController {
   async upsertAllBusinessHours(req: Request, res: Response, next: NextFunction) {
     try {
       const { hours } = upsertAllBusinessHoursSchema.parse(req.body);
-      const result = await scheduleService.upsertAllBusinessHours(hours);
+      const result = await scheduleService.upsertAllBusinessHours(hours, mutationOptions(req));
       res.status(200).json({
         status: 'success',
         message: 'Horários atualizados com sucesso',
-        data: { hours: result },
+        data: result,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -96,21 +81,13 @@ export class ScheduleController {
   async createSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createSpecialDaySchema.parse(req.body);
-      const day = await scheduleService.createSpecialDay(data);
+      const result = await scheduleService.createSpecialDay(data, mutationOptions(req));
       res.status(201).json({
         status: 'success',
         message: 'Dia especial criado com sucesso',
-        data: { day },
+        data: result,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -118,31 +95,31 @@ export class ScheduleController {
   async updateSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateSpecialDaySchema.parse(req.body);
-      const day = await scheduleService.updateSpecialDay(req.params.id as string, data);
+      const result = await scheduleService.updateSpecialDay(
+        req.params.id as string,
+        data,
+        mutationOptions(req),
+      );
       res.status(200).json({
         status: 'success',
         message: 'Dia especial atualizado com sucesso',
-        data: { day },
+        data: result,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
 
   async deleteSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
-      await scheduleService.deleteSpecialDay(req.params.id as string);
+      const result = await scheduleService.deleteSpecialDay(
+        req.params.id as string,
+        mutationOptions(req),
+      );
       res.status(200).json({
         status: 'success',
         message: 'Dia especial excluído com sucesso',
+        data: result,
       });
     } catch (error) {
       next(error);
@@ -179,6 +156,7 @@ export class ScheduleController {
       const schedule = await scheduleService.upsertEmployeeHours(
         req.params.employeeId as string,
         hours,
+        mutationOptions(req),
       );
       res.status(200).json({
         status: 'success',
@@ -186,21 +164,16 @@ export class ScheduleController {
         data: schedule,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
 
   async resetEmployeeHours(req: Request, res: Response, next: NextFunction) {
     try {
-      const schedule = await scheduleService.resetEmployeeHours(req.params.employeeId as string);
+      const schedule = await scheduleService.resetEmployeeHours(
+        req.params.employeeId as string,
+        mutationOptions(req),
+      );
       res.status(200).json({
         status: 'success',
         message: 'Profissional voltou a usar o horário do estabelecimento',
@@ -214,24 +187,17 @@ export class ScheduleController {
   async createEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
       const data = createEmployeeSpecialDaySchema.parse(req.body);
-      const day = await scheduleService.createEmployeeSpecialDay(
+      const result = await scheduleService.createEmployeeSpecialDay(
         req.params.employeeId as string,
         data,
+        mutationOptions(req),
       );
       res.status(201).json({
         status: 'success',
         message: 'Exceção do profissional criada com sucesso',
-        data: { day },
+        data: result,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
@@ -239,38 +205,33 @@ export class ScheduleController {
   async updateEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
       const data = updateEmployeeSpecialDaySchema.parse(req.body);
-      const day = await scheduleService.updateEmployeeSpecialDay(
+      const result = await scheduleService.updateEmployeeSpecialDay(
         req.params.employeeId as string,
         req.params.id as string,
         data,
+        mutationOptions(req),
       );
       res.status(200).json({
         status: 'success',
         message: 'Exceção do profissional atualizada com sucesso',
-        data: { day },
+        data: result,
       });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({
-          status: 'error',
-          message: 'Dados inválidos',
-          errors: formatZodErrors(error),
-        });
-        return;
-      }
       next(error);
     }
   }
 
   async deleteEmployeeSpecialDay(req: Request, res: Response, next: NextFunction) {
     try {
-      await scheduleService.deleteEmployeeSpecialDay(
+      const result = await scheduleService.deleteEmployeeSpecialDay(
         req.params.employeeId as string,
         req.params.id as string,
+        mutationOptions(req),
       );
       res.status(200).json({
         status: 'success',
         message: 'Exceção do profissional excluída com sucesso',
+        data: result,
       });
     } catch (error) {
       next(error);
