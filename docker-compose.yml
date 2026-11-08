@@ -1,4 +1,5 @@
 # Ambiente Docker local, isolado da produção: Postgres próprio e nenhuma chave real.
+# O Dockerfile fica em docker/ (e não na raiz) para o Railway continuar usando o Railpack na API.
 #   cp .env.example .env              (preencher POSTGRES_PASSWORD e JWT_SECRET)
 #   docker compose up -d --build --wait
 #   docker compose run --rm seed      (opcional: dados fictícios no banco do container)
@@ -28,6 +29,7 @@ services:
   migrate:
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: api
     command: ['prisma', 'migrate', 'deploy']
     environment:
@@ -39,6 +41,7 @@ services:
   api:
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: api
     environment:
       DATABASE_URL: *database-url
@@ -77,6 +80,7 @@ services:
   web:
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: web
       args:
         # Vai para o bundle no build: mudou API_PORT, rode o build de novo.
@@ -103,6 +107,7 @@ services:
   seed:
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: api-build
     profiles: ['seed']
     command: ['npm', 'run', 'db:seed']
