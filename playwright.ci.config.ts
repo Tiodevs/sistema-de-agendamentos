@@ -41,6 +41,9 @@ export default defineConfig({
         TRUST_PROXY: 'false',
         JWT_EXPIRES_IN: '12h',
         CANCELLATION_NOTICE_HOURS: '2',
+        // A suíte inteira faz mais de 80 logins do mesmo IP em 15 minutos (o limite de
+        // /api/auth/login). Só aqui os limites por IP valem 10 vezes; nenhum teste depende deles.
+        RATE_LIMIT_IP_FACTOR: '10',
         // O `dotenv/config` da API não lê nenhum .env: tudo vem daqui e do ambiente do job.
         DOTENV_CONFIG_PATH: '.env.ci-nao-existe',
       },
