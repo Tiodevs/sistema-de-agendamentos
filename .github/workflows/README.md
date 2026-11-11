@@ -116,7 +116,7 @@ Conceitos que ajudam:
 
 - Fixar as actions por SHA (hoje são tags; o Dependabot de `github-actions` já abre as atualizações).
 - Guardar em cache os navegadores do Playwright no job `e2e`.
-- Lint e Prettier na CI, depois de consertar o ESLint 9 e formatar os 19 arquivos.
+- `prettier --check` na CI (o ESLint já roda como passo dos jobs `api` e `web`; o Prettier roda no commit).
 - Voltar o web sozinho quando a fumaça de produção falha (hoje o rollback é manual).
 
 ## Leia também

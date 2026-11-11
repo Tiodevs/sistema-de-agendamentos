@@ -17,9 +17,11 @@
     "start": "concurrently --names \"API,WEB\" --prefix-colors \"blue,green\" \"npm run start:api\" \"npm run start:web\"",
     "start:api": "npm run start --workspace=apps/api",
     "start:web": "npm run start --workspace=apps/web",
-    "lint": "npm run lint --workspaces --if-present",
-    "lint:api": "npm run lint --workspace=apps/api",
-    "lint:web": "npm run lint --workspace=apps/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:api": "eslint apps/api",
+    "lint:web": "eslint apps/web",
+    "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web",
     "db:tunnel": "railway connect Postgres --tunnel-only --port 5433",
     "db:seed": "npm run db:seed --workspace=apps/api",
     "test": "node scripts/run-node-tests.mjs apps/api/test apps/web/test",
@@ -36,14 +38,25 @@
     "test:web": "npm run test --workspace=apps/web"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.51.1",
     "concurrently": "^9.1.2",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.29",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
     "husky": "^9.1.7",
+    "lint-staged": "^15.4.3",
     "prettier": "^3.5.3",
-    "lint-staged": "^15.4.3"
+    "typescript-eslint": "^8.72.2"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx,json,css,scss,md}": [
+    "*.{ts,tsx}": [
+      "eslint --fix --max-warnings=0",
+      "prettier --write"
+    ],
+    "*.{js,jsx,mjs,cjs,json,css,scss,md}": [
       "prettier --write"
     ]
   },
