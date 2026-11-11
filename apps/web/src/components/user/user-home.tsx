@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/hooks/use-auth';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   getMyAppointments,
@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { StaggerIn } from '@/components/motion/stagger-in';
 import { EmailVerificationNotice } from '@/components/user/email-verification-notice';
+import { LoadingState } from '@/components/shell/page-states';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const TIME_ZONE = 'America/Sao_Paulo';
 
@@ -182,28 +184,34 @@ export function UserHomePage() {
   const [hours, setHours] = useState<BusinessHour[]>([]);
   const [specialDays, setSpecialDays] = useState<SpecialDay[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "Livre / nenhum horário marcado" nem "Aberto até 18:00". Cada
+  // pedido falha por conta própria e a tela diz o que não carregou, com "Tentar de novo".
+  const [appointmentsError, setAppointmentsError] = useState(false);
+  const [hoursError, setHoursError] = useState(false);
+
+  const loadHome = useCallback(async () => {
+    const [appointmentsRes, hoursRes, specialRes] = await Promise.all([
+      getMyAppointments().catch(() => null),
+      getBusinessHours().catch(() => null),
+      getSpecialDays().catch(() => null),
+    ]);
+    if (appointmentsRes?.data?.appointments) setAppointments(appointmentsRes.data.appointments);
+    if (hoursRes?.data?.hours) setHours(hoursRes.data.hours);
+    if (specialRes?.data?.days) setSpecialDays(specialRes.data.days);
+    setAppointmentsError(!appointmentsRes);
+    // Sem os dias especiais o "hoje" pode estar errado (feriado), então conta como falha também.
+    setHoursError(!hoursRes || !specialRes);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadHome() {
-      try {
-        const [appointmentsRes, hoursRes, specialRes] = await Promise.all([
-          getMyAppointments(),
-          getBusinessHours().catch(() => null),
-          getSpecialDays().catch(() => null),
-        ]);
-        if (appointmentsRes.data?.appointments) {
-          setAppointments(appointmentsRes.data.appointments);
-        }
-        if (hoursRes?.data?.hours) setHours(hoursRes.data.hours);
-        if (specialRes?.data?.days) setSpecialDays(specialRes.data.days);
-      } catch {
-        // silently fail
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadHome();
-  }, []);
+    void loadHome();
+  }, [loadHome]);
+
+  function retryLoad() {
+    setLoading(true);
+    void loadHome();
+  }
 
   const { upcomingCount, nextAppointment, lastVisit, lastBooking } = useMemo(() => {
     const current = new Date();
@@ -265,10 +273,11 @@ export function UserHomePage() {
   const weeklyClosed = hours.filter((hour) => hour.isClosed).map((hour) => hour.dayName);
 
   const favoriteService = useMemo(() => {
-    const counts = new Map<string, { name: string; count: number }>();
+    const counts = new Map<string, { id: string; name: string; count: number }>();
     for (const appointment of appointments) {
       if (appointment.status === 'CANCELLED') continue;
       const current = counts.get(appointment.product.id) ?? {
+        id: appointment.product.id,
         name: appointment.product.name,
         count: 0,
       };
@@ -300,7 +309,36 @@ export function UserHomePage() {
     return 'Boa noite';
   })();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <LoadingState
+        label="Carregando seus horários…"
+        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]"
+      >
+        <div className="space-y-4">
+          <div className="admin-surface space-y-3 p-4 sm:p-6">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-8 w-56 max-w-full" />
+          </div>
+          <div className="admin-surface space-y-3 p-5">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-9 w-28" />
+            <Skeleton className="h-4 w-44" />
+          </div>
+          <div className="admin-surface h-40" />
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="admin-surface space-y-3 p-4 sm:p-5">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-6 w-36" />
+              <Skeleton className="h-3 w-48 max-w-full" />
+            </div>
+          ))}
+        </div>
+      </LoadingState>
+    );
+  }
 
   const todayClosed = todayHours.isClosed || nowHm >= todayHours.closeTime;
   const todayLabel = todayHours.isClosed
@@ -376,58 +414,80 @@ export function UserHomePage() {
           ) : null}
         </section>
 
-        <button
-          type="button"
-          data-motion="enter"
-          onClick={() => router.push('/appointments')}
-          className="w-full overflow-hidden rounded-[1.5rem] bg-black p-5 text-left text-white transition-colors hover:bg-zinc-950"
-        >
-          <div className="flex items-center justify-between gap-3">
+        {appointmentsError ? (
+          <section
+            data-motion="enter"
+            role="alert"
+            className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
+          >
             <p className="text-sm text-white/55">Próximo horário</p>
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-sm font-medium text-white/70">
-              Ver mais
-              <ChevronRight className="size-4" />
-            </span>
-          </div>
-
-          {nextAppointment && NextIcon ? (
-            <div className="mt-5 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-              <div>
-                <p className="text-3xl font-semibold tracking-tight">
-                  {formatSlotTime(nextAppointment.date)}
-                </p>
-                <p className="mt-1 text-sm text-white/55">
-                  {formatShortDate(nextAppointment.date)} · {formatCurrency(nextAppointment.price)}
-                </p>
-                {nextCancellation?.kind === 'allowed' && nextCancellation.until ? (
-                  <p className="mt-1 text-xs text-white/45">
-                    Cancele até {formatDeadline(nextCancellation.until)}
-                  </p>
-                ) : nextCancellation?.kind === 'studio-only' ? (
-                  <p className="mt-1 text-xs text-white/45">
-                    Para cancelar agora, fale com o estúdio.
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex min-w-0 items-center gap-3 sm:max-w-[55%] sm:justify-end">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
-                  <NextIcon className="size-4 text-white/80" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{nextAppointment.product.name}</p>
-                  <p className="truncate text-xs text-white/45">
-                    {nextAppointment.employee.name} · {STATUS_CONFIG[nextAppointment.status].label}
-                  </p>
-                </div>
-              </div>
+            <p className="mt-5 text-xl font-semibold tracking-tight">
+              Não foi possível carregar seus horários
+            </p>
+            <p className="mt-1 text-sm text-white/55">Confira a conexão e tente de novo.</p>
+            <Button
+              onClick={retryLoad}
+              className="mt-5 h-9 rounded-full bg-white px-4 text-sm text-black hover:bg-white/90"
+            >
+              Tentar de novo
+            </Button>
+          </section>
+        ) : (
+          <button
+            type="button"
+            data-motion="enter"
+            onClick={() => router.push('/appointments')}
+            className="w-full overflow-hidden rounded-[1.5rem] bg-black p-5 text-left text-white transition-colors hover:bg-zinc-950"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-white/55">Próximo horário</p>
+              <span className="inline-flex shrink-0 items-center gap-0.5 text-sm font-medium text-white/70">
+                Ver mais
+                <ChevronRight className="size-4" />
+              </span>
             </div>
-          ) : (
-            <>
-              <p className="mt-5 text-3xl font-semibold tracking-tight">Livre</p>
-              <p className="mt-1 text-sm text-white/55">Nenhum horário marcado</p>
-            </>
-          )}
-        </button>
+
+            {nextAppointment && NextIcon ? (
+              <div className="mt-5 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+                <div>
+                  <p className="text-3xl font-semibold tracking-tight">
+                    {formatSlotTime(nextAppointment.date)}
+                  </p>
+                  <p className="mt-1 text-sm text-white/55">
+                    {formatShortDate(nextAppointment.date)} ·{' '}
+                    {formatCurrency(nextAppointment.price)}
+                  </p>
+                  {nextCancellation?.kind === 'allowed' && nextCancellation.until ? (
+                    <p className="mt-1 text-xs text-white/45">
+                      Cancele até {formatDeadline(nextCancellation.until)}
+                    </p>
+                  ) : nextCancellation?.kind === 'studio-only' ? (
+                    <p className="mt-1 text-xs text-white/45">
+                      Para cancelar agora, fale com o estúdio.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex min-w-0 items-center gap-3 sm:max-w-[55%] sm:justify-end">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-white/8">
+                    <NextIcon className="size-4 text-white/80" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{nextAppointment.product.name}</p>
+                    <p className="truncate text-xs text-white/45">
+                      {nextAppointment.employee.name} ·{' '}
+                      {STATUS_CONFIG[nextAppointment.status].label}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="mt-5 text-3xl font-semibold tracking-tight">Livre</p>
+                <p className="mt-1 text-sm text-white/55">Nenhum horário marcado</p>
+              </>
+            )}
+          </button>
+        )}
 
         <section
           data-motion="enter"
@@ -448,34 +508,48 @@ export function UserHomePage() {
       </div>
 
       <aside className="space-y-4">
-        <InsightCard
-          icon={CalendarOff}
-          label="Próximo fechamento"
-          value={nextClosed ? formatInDays(nextClosed.days) : 'Aberto'}
-          hint={holidayHint ? `${closedHint}. ${holidayHint}` : closedHint}
-        />
+        {hoursError ? (
+          <InsightCard
+            icon={Clock}
+            label="Expediente"
+            value="Indisponível"
+            hint="Não foi possível carregar o horário do estúdio."
+            action={{ label: 'Tentar de novo', onClick: retryLoad }}
+          />
+        ) : (
+          <InsightCard
+            icon={CalendarOff}
+            label="Próximo fechamento"
+            value={nextClosed ? formatInDays(nextClosed.days) : 'Aberto'}
+            hint={holidayHint ? `${closedHint}. ${holidayHint}` : closedHint}
+          />
+        )}
 
-        <InsightCard
-          icon={History}
-          label={idleHasUpcoming ? 'Último atendimento' : 'Sem agendar'}
-          value={idleValue}
-          hint={idleHint}
-        />
+        {appointmentsError ? null : (
+          <InsightCard
+            icon={History}
+            label={idleHasUpcoming ? 'Último atendimento' : 'Sem agendar'}
+            value={idleValue}
+            hint={idleHint}
+          />
+        )}
 
-        <InsightCard
-          icon={Clock}
-          label="Hoje"
-          value={todayLabel}
-          hint={
-            todayHours.isClosed
-              ? nextOpen
-                ? `Volta ${formatInDays(nextOpen.days).toLowerCase()} · ${nextOpen.info.openTime} às ${nextOpen.info.closeTime}`
-                : todayHours.special?.description || 'Sem atendimento neste dia'
-              : todayClosed && nextOpen
-                ? `Próxima abertura ${formatInDays(nextOpen.days).toLowerCase()} às ${nextOpen.info.openTime}`
-                : `${todayHours.openTime} às ${todayHours.closeTime}`
-          }
-        />
+        {hoursError ? null : (
+          <InsightCard
+            icon={Clock}
+            label="Hoje"
+            value={todayLabel}
+            hint={
+              todayHours.isClosed
+                ? nextOpen
+                  ? `Volta ${formatInDays(nextOpen.days).toLowerCase()} · ${nextOpen.info.openTime} às ${nextOpen.info.closeTime}`
+                  : todayHours.special?.description || 'Sem atendimento neste dia'
+                : todayClosed && nextOpen
+                  ? `Próxima abertura ${formatInDays(nextOpen.days).toLowerCase()} às ${nextOpen.info.openTime}`
+                  : `${todayHours.openTime} às ${todayHours.closeTime}`
+            }
+          />
+        )}
 
         {!nextAppointment && (lastVisit || favoriteService) ? (
           <InsightCard
@@ -489,7 +563,19 @@ export function UserHomePage() {
                   ? `${favoriteService.count} ${favoriteService.count === 1 ? 'vez' : 'vezes'} no histórico`
                   : undefined
             }
-            action={{ label: 'Agendar de novo', onClick: () => router.push('/book') }}
+            action={{
+              label: 'Agendar de novo',
+              // UX-08: o assistente abre com o serviço (e o profissional da última visita) já
+              // escolhidos, direto no passo que falta.
+              onClick: () =>
+                router.push(
+                  lastVisit
+                    ? `/book?productId=${lastVisit.product.id}&employeeId=${lastVisit.employee.id}`
+                    : favoriteService
+                      ? `/book?productId=${favoriteService.id}`
+                      : '/book',
+                ),
+            }}
           />
         ) : nextAppointment && favoriteService ? (
           <InsightCard
@@ -497,7 +583,10 @@ export function UserHomePage() {
             label="Serviço mais pedido"
             value={favoriteService.name}
             hint={`${favoriteService.count} ${favoriteService.count === 1 ? 'vez' : 'vezes'} no histórico`}
-            action={{ label: 'Agendar de novo', onClick: () => router.push('/book') }}
+            action={{
+              label: 'Agendar de novo',
+              onClick: () => router.push(`/book?productId=${favoriteService.id}`),
+            }}
           />
         ) : null}
       </aside>

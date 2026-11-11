@@ -9,6 +9,7 @@ import {
   getEmployeeScheduleSummaries,
   getEmployees,
   resetEmployeeHours,
+  updateEmployee,
   updateEmployeeHours,
   type BusinessHourPayload,
   type Employee,
@@ -34,8 +35,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { UserAvatar } from '@/components/user-avatar';
-import { ScheduleHoursEditor } from '@/components/admin/schedule-hours-editor';
+import { ScheduleHoursEditor, type HourFieldValue } from '@/components/admin/schedule-hours-editor';
+import { firstBreaksError, toHourPayload } from '@/lib/schedule-breaks';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { LoadError, LoadingState } from '@/components/shell/page-states';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { impactMessage } from '@/lib/affected-appointments';
 import { todayDateKey } from '@/lib/datetime';
@@ -73,13 +77,13 @@ function formatDayMonthKey(dateKey: string) {
   return `${day}/${month}`;
 }
 
-function toPayload(hours: Array<BusinessHourPayload>): BusinessHourPayload[] {
-  return hours.map((hour) => ({
-    dayOfWeek: hour.dayOfWeek,
-    openTime: hour.openTime,
-    closeTime: hour.closeTime,
-    isClosed: hour.isClosed,
-  }));
+/**
+ * `ownBreaks: false` quando o profissional ainda segue o horário do estúdio: as pausas que a API
+ * devolve são as do estúdio, que continuam valendo de qualquer forma e não são copiadas para o
+ * horário próprio (UX-12).
+ */
+function toPayload(hours: Array<BusinessHourPayload>, ownBreaks = true): BusinessHourPayload[] {
+  return hours.map((hour) => toHourPayload(hour, ownBreaks));
 }
 
 export function ProfessionalSchedulePanel() {
@@ -88,9 +92,16 @@ export function ProfessionalSchedulePanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<EmployeeSchedule | null>(null);
   const [editHours, setEditHours] = useState<BusinessHourPayload[]>([]);
+  /** UX-12: respiro entre atendimentos, em minutos, como está no campo. */
+  const [bufferDraft, setBufferDraft] = useState('0');
+  const [savingBuffer, setSavingBuffer] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
+  // UX-10: falha da API tem tela própria. Antes a lista vazia dizia "nenhum profissional" e a
+  // grade que não carregava ficava girando para sempre.
+  const [listError, setListError] = useState(false);
+  const [scheduleError, setScheduleError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [showNewDay, setShowNewDay] = useState(false);
@@ -114,7 +125,9 @@ export function ProfessionalSchedulePanel() {
       ]);
       if (employeesRes.data?.employees) setEmployees(employeesRes.data.employees);
       if (summariesRes.data?.employees) setSummaries(summariesRes.data.employees);
+      setListError(false);
     } catch {
+      setListError(true);
       toast.error('Erro ao carregar profissionais');
     } finally {
       setLoadingList(false);
@@ -132,20 +145,23 @@ export function ProfessionalSchedulePanel() {
     // Resposta de um profissional que não está mais na tela não muda a grade.
     if (data.employee.id !== selectedIdRef.current) return;
     setSchedule(data);
-    setEditHours(toPayload(data.hours));
+    setEditHours(toPayload(data.hours, data.usesCustomHours));
     setCustomizing(data.usesCustomHours);
+    setBufferDraft(String(data.bufferMinutes ?? 0));
   }, []);
 
   const loadSchedule = useCallback(
     async (employeeId: string) => {
       const requestId = ++scheduleRequest.current;
       setLoadingSchedule(true);
+      setScheduleError(false);
       try {
         const res = await getEmployeeSchedule(employeeId);
         if (requestId !== scheduleRequest.current) return;
         if (res.data) applySchedule(res.data);
       } catch {
         if (requestId === scheduleRequest.current) {
+          setScheduleError(true);
           toast.error('Erro ao carregar horário do profissional');
         }
       } finally {
@@ -156,20 +172,20 @@ export function ProfessionalSchedulePanel() {
   );
 
   useEffect(() => {
-    loadList();
+    void loadList();
   }, [loadList]);
 
   useEffect(() => {
     // A grade do profissional anterior some na hora: nada dela pode ser salvo no novo.
     setSchedule(null);
     setEditHours([]);
-    if (selectedId) loadSchedule(selectedId);
+    if (selectedId) void loadSchedule(selectedId);
   }, [selectedId, loadSchedule]);
 
   const selectedEmployee = employees.find((employee) => employee.id === selectedId) ?? null;
   const summaryById = new Map(summaries.map((item) => [item.id, item]));
 
-  function updateHour(index: number, field: keyof BusinessHourPayload, value: string | boolean) {
+  function updateHour(index: number, field: keyof BusinessHourPayload, value: HourFieldValue) {
     setEditHours((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };
@@ -177,7 +193,7 @@ export function ProfessionalSchedulePanel() {
     });
   }
 
-  const savedPayload = schedule ? toPayload(schedule.hours) : [];
+  const savedPayload = schedule ? toPayload(schedule.hours, schedule.usesCustomHours) : [];
   const hasChanges = customizing && JSON.stringify(editHours) !== JSON.stringify(savedPayload);
   const specialDays: SpecialDay[] = schedule?.specialDays ?? [];
   // UX-05: "próximas" e "passadas" pelo dia de São Paulo, não pela data UTC.
@@ -192,7 +208,13 @@ export function ProfessionalSchedulePanel() {
   async function handleSaveHours() {
     const employeeId = shownEmployeeId;
     if (!employeeId) return;
-    const payload = editHours;
+    // UX-12: pausa fora do expediente ou sobreposta é apontada antes de ir para a API.
+    const invalid = firstBreaksError(editHours);
+    if (invalid) {
+      toast.error(invalid.message);
+      return;
+    }
+    const payload = toPayload(editHours);
     setSaving(true);
     try {
       await affected.run(`O novo horário de ${shownName}`, async (decision) => {
@@ -207,6 +229,37 @@ export function ProfessionalSchedulePanel() {
       toast.error(apiErrorMessage(err, 'Erro ao salvar horário'));
     } finally {
       setSaving(false);
+    }
+  }
+
+  const savedBuffer = schedule?.bufferMinutes ?? 0;
+  const bufferValue = Number(bufferDraft);
+  const bufferValid =
+    bufferDraft.trim() !== '' &&
+    Number.isInteger(bufferValue) &&
+    bufferValue >= 0 &&
+    bufferValue <= 120;
+
+  async function handleSaveBuffer() {
+    const employeeId = shownEmployeeId;
+    if (!employeeId || !bufferValid) return;
+    setSavingBuffer(true);
+    try {
+      await updateEmployee(employeeId, { bufferMinutes: bufferValue });
+      setSchedule((current) =>
+        current && current.employee.id === employeeId
+          ? { ...current, bufferMinutes: bufferValue }
+          : current,
+      );
+      toast.success(
+        bufferValue === 0
+          ? 'Respiro removido: os atendimentos podem ficar em sequência.'
+          : `Respiro de ${bufferValue} min salvo. Vale para os próximos agendamentos.`,
+      );
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, 'Erro ao salvar o respiro'));
+    } finally {
+      setSavingBuffer(false);
     }
   }
 
@@ -314,11 +367,33 @@ export function ProfessionalSchedulePanel() {
       setResetOpen(true);
       return;
     }
-    if (schedule) setEditHours(toPayload(schedule.hours));
+    if (schedule) setEditHours(toPayload(schedule.hours, schedule.usesCustomHours));
     setCustomizing(false);
   }
 
-  if (loadingList) return null;
+  if (loadingList) {
+    return (
+      <LoadingState label="Carregando profissionais…" className="space-y-4">
+        <Skeleton className="h-6 w-56" />
+        <div className="flex gap-2">
+          <Skeleton className="h-14 w-44 rounded-2xl" />
+          <Skeleton className="h-14 w-44 rounded-2xl" />
+        </div>
+      </LoadingState>
+    );
+  }
+
+  if (listError && employees.length === 0) {
+    return (
+      <LoadError
+        title="Não foi possível carregar os profissionais"
+        onRetry={() => {
+          setLoadingList(true);
+          void loadList();
+        }}
+      />
+    );
+  }
 
   return (
     <StaggerIn replayKey="professionals" selector="[data-motion='enter']" className="space-y-4">
@@ -350,6 +425,7 @@ export function ProfessionalSchedulePanel() {
                 key={employee.id}
                 type="button"
                 onClick={() => setSelectedId(employee.id)}
+                aria-pressed={selected}
                 className={cn(
                   'flex min-w-[11.5rem] items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition-colors',
                   selected
@@ -399,9 +475,15 @@ export function ProfessionalSchedulePanel() {
             </p>
           </div>
         ) : null
+      ) : scheduleError && !loadingSchedule ? (
+        <LoadError
+          title={`Não foi possível carregar a agenda de ${selectedEmployee.name}`}
+          onRetry={() => void loadSchedule(selectedEmployee.id)}
+        />
       ) : loadingSchedule || !schedule || schedule.employee.id !== selectedId ? (
-        <div className="flex items-center justify-center py-16">
+        <div role="status" className="flex items-center justify-center py-16">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <span className="sr-only">Carregando a agenda de {selectedEmployee.name}…</span>
         </div>
       ) : (
         <>
@@ -420,7 +502,11 @@ export function ProfessionalSchedulePanel() {
                 </div>
                 <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 sm:justify-end">
                   <span className="text-sm font-medium">Personalizar</span>
-                  <Switch checked={customizing} onCheckedChange={handleCustomizeToggle} />
+                  <Switch
+                    aria-label={`Personalizar o expediente de ${selectedEmployee.name}`}
+                    checked={customizing}
+                    onCheckedChange={handleCustomizeToggle}
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -430,7 +516,55 @@ export function ProfessionalSchedulePanel() {
                 onChange={updateHour}
                 disabled={!customizing}
                 replayKey={`${selectedId}-${customizing ? 'custom' : 'studio'}`}
+                breaksHint={
+                  customizing
+                    ? 'As pausas do estúdio continuam valendo; aqui entram as pausas só deste profissional.'
+                    : undefined
+                }
               />
+
+              {/* UX-12: respiro entre dois atendimentos, independente do horário personalizado. */}
+              <div className="mt-4 flex min-w-0 flex-col gap-3 rounded-2xl border p-3 sm:flex-row sm:items-end sm:justify-between md:px-4">
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="employee-buffer">Respiro entre atendimentos</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="employee-buffer"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={120}
+                      step={5}
+                      value={bufferDraft}
+                      onChange={(event) => setBufferDraft(event.target.value)}
+                      aria-describedby="employee-buffer-hint"
+                      aria-invalid={!bufferValid}
+                      className="h-9 w-24 text-sm"
+                    />
+                    <span className="text-sm text-muted-foreground">minutos</span>
+                  </div>
+                  <p id="employee-buffer-hint" className="text-xs text-muted-foreground">
+                    {bufferValid
+                      ? 'Tempo livre antes e depois de cada atendimento. Com 0, um horário pode começar quando o outro termina.'
+                      : 'Use um número inteiro de 0 a 120.'}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full rounded-full sm:w-auto"
+                  onClick={handleSaveBuffer}
+                  disabled={
+                    savingBuffer || !shownEmployeeId || !bufferValid || bufferValue === savedBuffer
+                  }
+                >
+                  {savingBuffer ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Save className="size-4" />
+                  )}
+                  Salvar respiro
+                </Button>
+              </div>
 
               {customizing ? (
                 <>
@@ -441,8 +575,8 @@ export function ProfessionalSchedulePanel() {
                       className={cn(
                         'inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium',
                         hasChanges || !schedule.usesCustomHours
-                          ? 'bg-amber-500/10 text-amber-500'
-                          : 'bg-emerald-500/10 text-emerald-500',
+                          ? 'bg-tone-warning-bg text-tone-warning'
+                          : 'bg-tone-success-bg text-tone-success',
                       )}
                     >
                       {hasChanges || !schedule.usesCustomHours ? (
@@ -517,16 +651,16 @@ export function ProfessionalSchedulePanel() {
                     className={cn(
                       'flex min-w-0 flex-col gap-3 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-4',
                       day.isClosed
-                        ? 'border-red-500/20 bg-red-500/5'
-                        : 'border-yellow-500/20 bg-yellow-500/5',
+                        ? 'border-tone-danger/20 bg-tone-danger/5'
+                        : 'border-tone-warning/20 bg-tone-warning/5',
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--admin-card-muted)]">
                         {day.isClosed ? (
-                          <CalendarOff className="size-5 text-red-400" />
+                          <CalendarOff className="size-5 text-tone-danger" />
                         ) : (
-                          <CalendarDays className="size-5 text-yellow-400" />
+                          <CalendarDays className="size-5 text-tone-warning" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -543,19 +677,26 @@ export function ProfessionalSchedulePanel() {
                     </div>
                     <div className="flex items-center justify-between gap-2 sm:justify-end">
                       {day.isClosed ? (
-                        <Badge variant="outline" className="border-red-500/30 text-red-400">
+                        <Badge
+                          variant="outline"
+                          className="border-tone-danger-border text-tone-danger"
+                        >
                           Folga
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="border-yellow-500/30 text-yellow-400">
+                        <Badge
+                          variant="outline"
+                          className="border-tone-warning-border text-tone-warning"
+                        >
                           {day.openTime} – {day.closeTime}
                         </Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 text-red-400 hover:bg-red-500/10 hover:text-red-400"
+                        className="size-8 text-tone-danger hover:bg-tone-danger-bg hover:text-tone-danger"
                         onClick={() => setDeleteId(day.id)}
+                        aria-label={`Excluir a exceção ${day.title}`}
                       >
                         <Trash2 className="size-4" />
                       </Button>
@@ -590,8 +731,9 @@ export function ProfessionalSchedulePanel() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                      className="size-8 text-muted-foreground hover:bg-tone-danger-bg hover:text-tone-danger"
                       onClick={() => setDeleteId(day.id)}
+                      aria-label={`Excluir a exceção ${day.title}`}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -660,8 +802,10 @@ export function ProfessionalSchedulePanel() {
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 sm:px-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium">Profissional de folga</p>
-                <p className="text-xs text-muted-foreground">
+                <p id="employee-special-closed-label" className="text-sm font-medium">
+                  Profissional de folga
+                </p>
+                <p id="employee-special-closed-hint" className="text-xs text-muted-foreground">
                   {newDay.isClosed
                     ? 'Nenhum agendamento será aceito com este profissional'
                     : 'Atende com horário especial neste dia'}
@@ -669,6 +813,8 @@ export function ProfessionalSchedulePanel() {
               </div>
               <Switch
                 className="shrink-0"
+                aria-labelledby="employee-special-closed-label"
+                aria-describedby="employee-special-closed-hint"
                 checked={newDay.isClosed}
                 onCheckedChange={(checked) => setNewDay({ ...newDay, isClosed: checked })}
               />
@@ -676,16 +822,18 @@ export function ProfessionalSchedulePanel() {
             {!newDay.isClosed ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Início</Label>
+                  <Label htmlFor="employee-special-open">Início</Label>
                   <Input
+                    id="employee-special-open"
                     type="time"
                     value={newDay.openTime}
                     onChange={(event) => setNewDay({ ...newDay, openTime: event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Fim</Label>
+                  <Label htmlFor="employee-special-close">Fim</Label>
                   <Input
+                    id="employee-special-close"
                     type="time"
                     value={newDay.closeTime}
                     onChange={(event) => setNewDay({ ...newDay, closeTime: event.target.value })}
@@ -709,8 +857,8 @@ export function ProfessionalSchedulePanel() {
       <Dialog open={resetOpen} onOpenChange={setResetOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-amber-500/10">
-              <AlertTriangle className="size-6 text-amber-400" />
+            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-tone-warning-bg">
+              <AlertTriangle className="size-6 text-tone-warning" />
             </div>
             <DialogTitle className="text-center">Usar horário do estabelecimento?</DialogTitle>
             <DialogDescription className="text-center">
@@ -744,8 +892,8 @@ export function ProfessionalSchedulePanel() {
       <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-red-500/10">
-              <AlertTriangle className="size-6 text-red-400" />
+            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-tone-danger-bg">
+              <AlertTriangle className="size-6 text-tone-danger" />
             </div>
             <DialogTitle className="text-center">Excluir esta exceção?</DialogTitle>
             <DialogDescription className="text-center">

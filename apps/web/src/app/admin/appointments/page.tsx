@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   getAppointments,
   updateAppointmentStatus,
   undoAppointmentStatus,
-  type Appointment,
+  type AppointmentStatus,
+  type AppointmentsQuery,
 } from '@/lib/api';
+import { addDateKey, todayDateKey } from '@/lib/datetime';
 import { formatCurrency, formatShortName } from '@/lib/format';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import { STATUS_ACTION_LABELS, effectiveAllowed, groupActions } from '@/lib/status-actions';
-import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -27,9 +29,18 @@ import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { StatusConfirmDialog } from '@/components/appointments/status-confirm-dialog';
 import { useStatusChange } from '@/components/appointments/use-status-change';
-import { Plus, Search, MoreHorizontal, Loader2, CalendarDays } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Loader2,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { ListSkeleton, LoadError } from '@/components/shell/page-states';
 
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
@@ -53,51 +64,118 @@ function formatDayMonth(isoString: string): string {
   });
 }
 
+type Period = 'upcoming' | 'today' | 'week' | 'past' | 'all';
+
+const PAGE_SIZE = 50;
+const SEARCH_DEBOUNCE_MS = 300;
+
+const PERIODS: Array<{ id: Period; label: string }> = [
+  { id: 'upcoming', label: 'A partir de hoje' },
+  { id: 'today', label: 'Hoje' },
+  { id: 'week', label: 'Próximos 7 dias' },
+  { id: 'past', label: 'Anteriores' },
+  { id: 'all', label: 'Tudo' },
+];
+
+/**
+ * UX-09: a agenda abre no que vem pela frente e a API devolve uma página por vez. O período vira
+ * `from`/`to` (dias no fuso de São Paulo); o passado vem do mais recente para o mais antigo.
+ */
+function periodQuery(period: Period): Pick<AppointmentsQuery, 'from' | 'to' | 'order'> {
+  const today = todayDateKey();
+  switch (period) {
+    case 'today':
+      return { from: today, to: today };
+    case 'week':
+      return { from: today, to: addDateKey(today, 6) };
+    case 'past':
+      return { to: addDateKey(today, -1), order: 'desc' };
+    case 'all':
+      return { from: '2000-01-01', order: 'desc' };
+    default:
+      // Sem período, a API começa em hoje.
+      return {};
+  }
+}
+
 export default function AppointmentsPage() {
   const router = useRouter();
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [term, setTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<AppointmentStatus | 'ALL'>('ALL');
+  const [period, setPeriod] = useState<Period>('upcoming');
+  const [page, setPage] = useState(1);
 
-  const fetchAppointments = useCallback(async () => {
-    try {
-      const filters: { status?: string } = {};
-      if (statusFilter !== 'ALL') filters.status = statusFilter;
-      const res = await getAppointments(filters);
-      if (res.data?.appointments) setAppointments(res.data.appointments);
-    } catch {
-      toast.error('Erro ao carregar agendamentos');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search).get('q');
+    if (query) {
+      setSearch(query);
+      setTerm(query.trim());
+      // Quem chega com uma busca (ficha do cliente, painel) quer ver o histórico também.
+      setPeriod('all');
     }
-  }, [statusFilter]);
+  }, []);
+
+  // A busca é feita no servidor (nome, e-mail ou telefone do cliente), depois de uma pausa na
+  // digitação.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setTerm(search.trim());
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const agenda = useQuery({
+    queryKey: ['appointments', 'admin', { period, statusFilter, term, page }],
+    placeholderData: keepPreviousData,
+    staleTime: 0,
+    queryFn: async ({ signal }) => {
+      const res = await getAppointments(
+        {
+          ...periodQuery(period),
+          ...(statusFilter !== 'ALL' && { status: statusFilter }),
+          ...(term && { search: term }),
+          page,
+          limit: PAGE_SIZE,
+        },
+        { signal },
+      );
+      return {
+        appointments: res.data?.appointments ?? [],
+        pagination: res.data?.pagination ?? { page, limit: PAGE_SIZE, total: 0, totalPages: 1 },
+      };
+    },
+  });
+  const { refetch } = agenda;
+  const refresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   // UX-06 / DOM-01: só as mudanças que a API permite; cancelar e registrar falta confirmam antes.
   const statusChange = useStatusChange({
     change: updateAppointmentStatus,
     undo: undoAppointmentStatus,
-    onChanged: fetchAppointments,
+    onChanged: refresh,
   });
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const query = params.get('q');
-    if (query) setSearch(query);
-  }, []);
+  const appointments = agenda.data?.appointments ?? [];
+  const pagination = agenda.data?.pagination;
+  const total = pagination?.total ?? 0;
+  const totalPages = pagination?.totalPages ?? 1;
+  const filtered = Boolean(term) || statusFilter !== 'ALL' || period !== 'upcoming';
 
-  useEffect(() => {
-    fetchAppointments();
-  }, [fetchAppointments]);
+  function choosePeriod(next: Period) {
+    setPeriod(next);
+    setPage(1);
+  }
 
-  const filteredAppointments = appointments.filter(
-    (appointment) =>
-      appointment.client.name.toLowerCase().includes(search.toLowerCase()) ||
-      appointment.product.name.toLowerCase().includes(search.toLowerCase()) ||
-      appointment.employee.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  function chooseStatus(next: AppointmentStatus | 'ALL') {
+    setStatusFilter(next);
+    setPage(1);
+  }
 
-  if (loading) return null;
+  if (agenda.isPending) return <ListSkeleton label="Carregando agendamentos…" />;
 
   return (
     <StaggerIn selector="[data-motion='enter']" className="space-y-5">
@@ -119,7 +197,9 @@ export default function AppointmentsPage() {
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar por cliente, serviço ou profissional..."
+              type="search"
+              placeholder="Buscar cliente por nome, e-mail ou telefone"
+              aria-label="Buscar cliente por nome, e-mail ou telefone"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="rounded-full pl-10"
@@ -128,13 +208,14 @@ export default function AppointmentsPage() {
           <div className="admin-scroll-x flex gap-1 text-sm">
             <button
               type="button"
-              onClick={() => setStatusFilter('ALL')}
+              onClick={() => chooseStatus('ALL')}
               className={cn(
                 'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
                 statusFilter === 'ALL'
                   ? 'bg-[var(--admin-card-muted)] text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
+              aria-pressed={statusFilter === 'ALL'}
             >
               Todos
             </button>
@@ -142,22 +223,50 @@ export default function AppointmentsPage() {
               <button
                 key={status}
                 type="button"
-                onClick={() => setStatusFilter(status)}
+                onClick={() => chooseStatus(status)}
                 className={cn(
                   'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
                   statusFilter === status
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={statusFilter === status}
               >
                 {STATUS_CONFIG[status].label}
               </button>
             ))}
           </div>
         </div>
+        <div
+          role="group"
+          aria-label="Período"
+          className="admin-scroll-x mt-3 flex gap-1 border-t border-border pt-3 text-sm"
+        >
+          {PERIODS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => choosePeriod(item.id)}
+              aria-pressed={period === item.id}
+              className={cn(
+                'rounded-full px-3 py-1.5 font-medium whitespace-nowrap transition-colors',
+                period === item.id
+                  ? 'bg-[var(--admin-card-muted)] text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </section>
 
-      {filteredAppointments.length === 0 ? (
+      {agenda.isError ? (
+        <LoadError
+          title="Não foi possível carregar os agendamentos"
+          onRetry={() => void agenda.refetch()}
+        />
+      ) : appointments.length === 0 ? (
         <section
           data-motion="enter"
           className="admin-surface flex flex-col items-center justify-center px-6 py-16"
@@ -165,11 +274,11 @@ export default function AppointmentsPage() {
           <CalendarDays className="mb-4 size-12 text-muted-foreground/40" />
           <h2 className="text-lg font-semibold">Nenhum agendamento encontrado</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {search || statusFilter !== 'ALL'
-              ? 'Tente alterar os filtros.'
-              : 'Crie o primeiro agendamento da agenda.'}
+            {filtered
+              ? 'Tente alterar a busca, o status ou o período.'
+              : 'Nada marcado de hoje em diante. Veja “Anteriores” ou crie um agendamento.'}
           </p>
-          {!search && statusFilter === 'ALL' ? (
+          {!filtered ? (
             <Button
               onClick={() => router.push('/admin/appointments/new')}
               className="mt-5 rounded-full"
@@ -182,17 +291,27 @@ export default function AppointmentsPage() {
       ) : (
         <section data-motion="enter" className="admin-surface overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4">
-            <p className="text-sm font-medium">
-              {filteredAppointments.length}{' '}
-              {filteredAppointments.length === 1 ? 'agendamento' : 'agendamentos'}
+            <p className="text-sm font-medium" aria-live="polite">
+              {total} {total === 1 ? 'agendamento' : 'agendamentos'}
+              {agenda.isFetching ? (
+                <Loader2
+                  className="ml-2 inline size-3.5 animate-spin text-muted-foreground"
+                  aria-label="Atualizando"
+                />
+              ) : null}
             </p>
+            {totalPages > 1 ? (
+              <p className="text-sm text-muted-foreground">
+                Página {page} de {totalPages}
+              </p>
+            ) : null}
           </div>
           <StaggerIn
-            replayKey={statusFilter}
+            replayKey={`${statusFilter}-${period}-${page}`}
             selector="[data-row]"
             className="divide-y divide-border"
           >
-            {filteredAppointments.map((appointment) => {
+            {appointments.map((appointment) => {
               const { progress, destructive } = groupActions(
                 effectiveAllowed(appointment, 'ADMIN'),
               );
@@ -301,6 +420,33 @@ export default function AppointmentsPage() {
               );
             })}
           </StaggerIn>
+          {totalPages > 1 ? (
+            <nav
+              aria-label="Páginas da agenda"
+              className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-5"
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                disabled={page <= 1 || agenda.isFetching}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                <ChevronLeft className="size-4" />
+                Anterior
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                disabled={page >= totalPages || agenda.isFetching}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              >
+                Próxima
+                <ChevronRight className="size-4" />
+              </Button>
+            </nav>
+          ) : null}
         </section>
       )}
 

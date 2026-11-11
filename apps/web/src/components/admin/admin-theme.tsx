@@ -10,9 +10,15 @@ import {
   type ReactNode,
 } from 'react';
 import { usePathname } from 'next/navigation';
-import { ADMIN_THEME_STORAGE_KEY, isAppThemePath } from '@/lib/admin-theme-script';
+import {
+  ADMIN_THEME_STORAGE_KEY,
+  isAppThemePath,
+  prefersLightMediaQuery,
+  resolveAppTheme,
+  type AppColorMode,
+} from '@/lib/admin-theme-script';
 
-export type AdminColorMode = 'dark' | 'light';
+export type AdminColorMode = AppColorMode;
 
 type AdminThemeContextValue = {
   theme: AdminColorMode;
@@ -26,6 +32,15 @@ const AdminThemeContext = createContext<AdminThemeContextValue | null>(null);
 function applyHtmlTheme(theme: AdminColorMode) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
   document.documentElement.style.colorScheme = theme;
+}
+
+/** Navegação privada ou storage bloqueado: sem escolha salva, vale o tema do sistema. */
+function readStoredTheme() {
+  try {
+    return window.localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function AdminThemeProvider({ children }: { children: ReactNode }) {
@@ -42,13 +57,21 @@ export function AdminThemeProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const stored = window.localStorage.getItem(ADMIN_THEME_STORAGE_KEY);
-    const next: AdminColorMode = stored === 'light' ? 'light' : 'dark';
-    setThemeState(next);
-    applyHtmlTheme(next);
+    // ARQ-10: a escolha salva manda; sem ela, o tema segue o sistema (prefers-color-scheme),
+    // inclusive se o sistema trocar de tema com a página aberta.
+    const media = prefersLightMediaQuery();
+    const sync = () => {
+      const next = resolveAppTheme(readStoredTheme(), media?.matches ?? false);
+      setThemeState(next);
+      applyHtmlTheme(next);
+    };
+    sync();
     setMounted(true);
+    // Safari antigo não tem addEventListener na consulta: lá o tema só não acompanha ao vivo.
+    media?.addEventListener?.('change', sync);
 
     return () => {
+      media?.removeEventListener?.('change', sync);
       applyHtmlTheme('dark');
     };
   }, [isThemed]);
@@ -57,7 +80,11 @@ export function AdminThemeProvider({ children }: { children: ReactNode }) {
     (next: AdminColorMode) => {
       setThemeState(next);
       if (isThemed) {
-        window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, next);
+        try {
+          window.localStorage.setItem(ADMIN_THEME_STORAGE_KEY, next);
+        } catch {
+          // Sem storage o tema vale só nesta visita.
+        }
         applyHtmlTheme(next);
       }
     },

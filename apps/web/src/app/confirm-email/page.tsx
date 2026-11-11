@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { confirmEmailChange } from '@/lib/api';
+import { apiErrorMessage, confirmEmailChange } from '@/lib/api';
 import { readAuthLinkToken, stripAuthLinkTokenFromUrl } from '@/lib/auth-link-token';
 import { Button } from '@/components/ui/button';
 import { Loader2, MailCheck } from 'lucide-react';
@@ -51,8 +51,7 @@ export default function ConfirmEmailPage() {
       }
       setDone(true);
     } catch (err: unknown) {
-      const apiError = err as { message?: string };
-      setError(apiError.message || 'Não foi possível confirmar o e-mail.');
+      setError(apiErrorMessage(err, 'Não foi possível confirmar o e-mail.'));
     } finally {
       setIsLoading(false);
     }

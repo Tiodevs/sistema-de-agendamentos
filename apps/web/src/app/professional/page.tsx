@@ -13,18 +13,20 @@ import { iconForProduct } from '@/lib/admin-accents';
 import { WeeklyChart } from '@/components/admin/weekly-chart';
 import { RankingList } from '@/components/admin/ranking-list';
 import {
-  ChangeLabel,
   DASHBOARD_PERIODS,
   FilterDropdown,
   formatShortDate,
   formatSlotTime,
   KpiCard,
+  RevenueHeadline,
+  RevenueKpiCard,
 } from '@/components/admin/dashboard-widgets';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { DashboardSkeleton } from '@/components/shell/page-states';
 
 function greetingForNow() {
   const hour = new Date().getHours();
@@ -80,12 +82,13 @@ export default function ProfessionalDashboardPage() {
     };
   }, [period, productId]);
 
-  if (loading) return null;
+  // UX-10: enquanto carrega, um esqueleto no lugar da tela vazia.
+  if (loading) return <DashboardSkeleton label="Carregando o painel…" />;
 
   if (!data) {
     return (
-      <div className="flex min-h-[400px] flex-col items-center justify-center gap-3">
-        <AlertCircle className="size-10 text-muted-foreground" />
+      <div role="alert" className="flex min-h-[400px] flex-col items-center justify-center gap-3">
+        <AlertCircle className="size-10 text-muted-foreground" aria-hidden />
         <p className="text-muted-foreground">Erro ao carregar dados</p>
         <Button variant="outline" className="rounded-full" onClick={() => window.location.reload()}>
           Tentar novamente
@@ -153,6 +156,7 @@ export default function ProfessionalDashboardPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={period === item.key}
               >
                 {item.label}
               </button>
@@ -179,11 +183,10 @@ export default function ProfessionalDashboardPage() {
             change={overview.appointmentChange}
             hint={`${overview.completedAppointments ?? completedCount} concluídos · ${uniqueClients} clientes`}
           />
-          <KpiCard
-            label="Receita"
-            value={formatCurrency(overview.monthRevenue)}
+          <RevenueKpiCard
+            completed={completedRevenue}
+            expected={expectedRevenue}
             change={overview.revenueChange}
-            hint={`${formatCurrency(completedRevenue)} realizado · ${formatCurrency(expectedRevenue)} previsto`}
           />
           <KpiCard
             label="Ticket médio"
@@ -292,20 +295,11 @@ export default function ProfessionalDashboardPage() {
               className="overflow-hidden rounded-[1.5rem] bg-black p-5 text-white"
             >
               <div className="mb-8 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-3xl font-semibold tracking-tight">
-                    {formatCurrency(overview.monthRevenue)}
-                  </p>
-                  <p className="mt-1 text-sm text-white/55">Receita do período</p>
-                  <p className="mt-1 text-xs">
-                    <ChangeLabel value={overview.revenueChange} light />
-                  </p>
-                  <p className="mt-3 text-xs text-white/45">
-                    {formatCurrency(completedRevenue)} realizado
-                    <span className="mx-1.5">·</span>
-                    {formatCurrency(expectedRevenue)} previsto
-                  </p>
-                </div>
+                <RevenueHeadline
+                  completed={completedRevenue}
+                  expected={expectedRevenue}
+                  change={overview.revenueChange}
+                />
                 <Button
                   onClick={() => router.push('/professional/agenda')}
                   className="rounded-full bg-white text-black hover:bg-white/90"
@@ -364,7 +358,11 @@ export default function ProfessionalDashboardPage() {
                 </p>
               </div>
 
-              <div className="mb-4 flex h-4 overflow-hidden rounded-full bg-[var(--admin-card-muted)]">
+              {/* A lista logo abaixo diz o mesmo em texto; a barra é só o desenho (UX-10). */}
+              <div
+                aria-hidden
+                className="mb-4 flex h-4 overflow-hidden rounded-full bg-[var(--admin-card-muted)]"
+              >
                 {visibleStatuses.map((status) => {
                   const count = statusBreakdown[status] || 0;
                   return (

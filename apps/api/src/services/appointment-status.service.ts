@@ -30,7 +30,7 @@ type MailableAppointment = {
   date: Date;
   price: number;
   notes: string | null;
-  client: { name: string; email: string };
+  client: { name: string; email: string | null };
   product: { name: string; duration: number };
   employee: { name: string; email: string };
 };

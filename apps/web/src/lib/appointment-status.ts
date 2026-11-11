@@ -1,5 +1,8 @@
 import type { AppointmentStatus } from '@/lib/api';
 
+// UX-11: as cores vêm dos tokens `--status-*` (styles/tokens.css), com um tom para cada tema.
+// `color` é o texto e `dotColor` a bolinha/barra; para fundo suave e borda existem
+// `bg-status-<nome>-bg` e `border-status-<nome>-border`.
 export const STATUS_CONFIG: Record<
   AppointmentStatus,
   {
@@ -9,35 +12,40 @@ export const STATUS_CONFIG: Record<
     badge: 'default' | 'secondary' | 'destructive' | 'outline';
   }
 > = {
-  SCHEDULED: { label: 'Agendado', color: 'text-sky-400', dotColor: 'bg-sky-400', badge: 'outline' },
+  SCHEDULED: {
+    label: 'Agendado',
+    color: 'text-status-scheduled',
+    dotColor: 'bg-status-scheduled',
+    badge: 'outline',
+  },
   CONFIRMED: {
     label: 'Confirmado',
-    color: 'text-emerald-400',
-    dotColor: 'bg-emerald-400',
+    color: 'text-status-confirmed',
+    dotColor: 'bg-status-confirmed',
     badge: 'default',
   },
   IN_PROGRESS: {
     label: 'Em andamento',
-    color: 'text-[#34C3DD]',
-    dotColor: 'bg-[#34C3DD]',
+    color: 'text-status-in-progress',
+    dotColor: 'bg-status-in-progress',
     badge: 'default',
   },
   COMPLETED: {
     label: 'Concluído',
-    color: 'text-emerald-300',
-    dotColor: 'bg-emerald-300',
+    color: 'text-status-completed',
+    dotColor: 'bg-status-completed',
     badge: 'secondary',
   },
   CANCELLED: {
     label: 'Cancelado',
-    color: 'text-red-400',
-    dotColor: 'bg-red-400',
+    color: 'text-status-cancelled',
+    dotColor: 'bg-status-cancelled',
     badge: 'destructive',
   },
   NO_SHOW: {
     label: 'Não compareceu',
-    color: 'text-muted-foreground',
-    dotColor: 'bg-muted-foreground',
+    color: 'text-status-no-show',
+    dotColor: 'bg-status-no-show',
     badge: 'destructive',
   },
 };

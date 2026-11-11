@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { isEmployeeOverlapError } from '../lib/booking-slot';
+import { logger } from '../lib/logger';
+import { reportError } from '../lib/observability';
 
 type ErrorBody = {
   statusCode: number;
@@ -122,12 +124,21 @@ export const errorHandler = (err: unknown, req: Request, res: Response, next: Ne
 
   const body = toErrorBody(err);
   const requestId = typeof res.locals.requestId === 'string' ? res.locals.requestId : undefined;
-  const label = `[ERROR] ${requestId ?? '-'} ${req.method} ${req.originalUrl} → ${body.statusCode}`;
+  const context = {
+    requestId,
+    method: req.method,
+    url: req.originalUrl,
+    statusCode: body.statusCode,
+  };
 
   if (body.statusCode >= 500) {
-    console.error(label, err);
+    logger.error({ ...context, err }, 'erro não tratado na requisição');
+    reportError(err, {
+      requestId,
+      route: `${req.method} ${req.baseUrl}${req.route?.path ?? req.path}`,
+    });
   } else {
-    console.warn(`${label}: ${body.message}`);
+    logger.warn({ ...context, code: body.code }, body.message);
   }
 
   res.status(body.statusCode).json({

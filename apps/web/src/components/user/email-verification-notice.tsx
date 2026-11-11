@@ -5,7 +5,7 @@ import { Loader2, MailWarning, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
-import { resendEmailVerification } from '@/lib/api';
+import { apiErrorMessage, resendEmailVerification } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 /** Aviso para o cliente que ainda não confirmou o e-mail: sem isso, a API recusa a reserva. */
@@ -28,8 +28,7 @@ export function EmailVerificationNotice({ className }: { className?: string }) {
       setSent(true);
       toast.success(response.message || 'Enviamos um novo link de confirmação.');
     } catch (err: unknown) {
-      const apiError = err as { message?: string };
-      toast.error(apiError.message || 'Não foi possível reenviar o link.');
+      toast.error(apiErrorMessage(err, 'Não foi possível reenviar o link.'));
     } finally {
       setSending(false);
     }
@@ -44,7 +43,7 @@ export function EmailVerificationNotice({ className }: { className?: string }) {
         className,
       )}
     >
-      <MailWarning className="size-5 shrink-0 text-[var(--admin-accent)]" aria-hidden />
+      <MailWarning className="size-5 shrink-0 text-brand-ink" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="font-semibold">Confirme seu e-mail para agendar</p>
         <p className="text-sm text-muted-foreground">

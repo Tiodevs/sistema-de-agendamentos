@@ -332,7 +332,7 @@ export function LandingPage() {
       // positions need a recalculation once the layout is final.
       const refresh = () => ScrollTrigger.refresh();
       window.addEventListener('load', refresh);
-      document.fonts?.ready.then(refresh);
+      void document.fonts?.ready.then(refresh);
       const refreshTimer = window.setTimeout(refresh, 1200);
 
       return () => {
@@ -631,7 +631,9 @@ export function LandingPage() {
               return (
                 <Link
                   key={service.name}
-                  href="/register"
+                  // UX-08: os cards são estáticos (sem id do serviço), então o cadastro devolve a
+                  // pessoa ao agendamento, sem serviço pré-escolhido.
+                  href="/register?next=%2Fbook"
                   data-landing="reveal"
                   data-motion="lift"
                   className="group rounded-[1.35rem] bg-[var(--admin-card)] p-4 transition-colors hover:bg-[var(--admin-hover)]"

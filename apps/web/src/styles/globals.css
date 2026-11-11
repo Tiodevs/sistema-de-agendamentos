@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './tokens.css';
 @import './admin.css';
 
 @custom-variant dark (&:is(.dark *));
@@ -37,6 +38,46 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* UX-11: status, tons e destaque por tema (valores em tokens.css). */
+  --color-status-scheduled: var(--status-scheduled);
+  --color-status-scheduled-bg: var(--status-scheduled-bg);
+  --color-status-scheduled-border: var(--status-scheduled-border);
+  --color-status-confirmed: var(--status-confirmed);
+  --color-status-confirmed-bg: var(--status-confirmed-bg);
+  --color-status-confirmed-border: var(--status-confirmed-border);
+  --color-status-in-progress: var(--status-in-progress);
+  --color-status-in-progress-bg: var(--status-in-progress-bg);
+  --color-status-in-progress-border: var(--status-in-progress-border);
+  --color-status-completed: var(--status-completed);
+  --color-status-completed-bg: var(--status-completed-bg);
+  --color-status-completed-border: var(--status-completed-border);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-cancelled-bg: var(--status-cancelled-bg);
+  --color-status-cancelled-border: var(--status-cancelled-border);
+  --color-status-no-show: var(--status-no-show);
+  --color-status-no-show-bg: var(--status-no-show-bg);
+  --color-status-no-show-border: var(--status-no-show-border);
+  --color-tone-info: var(--tone-info);
+  --color-tone-info-bg: var(--tone-info-bg);
+  --color-tone-info-border: var(--tone-info-border);
+  --color-tone-success: var(--tone-success);
+  --color-tone-success-bg: var(--tone-success-bg);
+  --color-tone-success-border: var(--tone-success-border);
+  --color-tone-warning: var(--tone-warning);
+  --color-tone-warning-bg: var(--tone-warning-bg);
+  --color-tone-warning-border: var(--tone-warning-border);
+  --color-tone-danger: var(--tone-danger);
+  --color-tone-danger-bg: var(--tone-danger-bg);
+  --color-tone-danger-border: var(--tone-danger-border);
+  --color-tone-neutral: var(--tone-neutral);
+  --color-brand: var(--brand-accent);
+  --color-brand-foreground: var(--brand-accent-foreground);
+  --color-brand-ink: var(--brand-accent-text);
+  --color-chip-cyan: var(--chip-cyan);
+  --color-chip-violet: var(--chip-violet);
+  --color-chip-sky: var(--chip-sky);
+  --color-chip-orange: var(--chip-orange);
+  --color-chip-emerald: var(--chip-emerald);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -59,7 +100,9 @@
   --muted-foreground: oklch(0.556 0.005 286.286);
   --accent: oklch(0.97 0.001 286.375);
   --accent-foreground: oklch(0.205 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* UX-11: vermelho 700. O 600 de antes dava 4,3:1 sobre o painel e 3,6:1 sobre o próprio
+     fundo suave (`bg-destructive/10`) dos avisos de erro. */
+  --destructive: oklch(0.505 0.213 27.518);
   --destructive-foreground: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0.004 286.32);
   --input: oklch(0.922 0.004 286.32);
@@ -94,7 +137,9 @@
   --muted-foreground: oklch(0.708 0.005 286.286);
   --accent: oklch(0.269 0.006 285.885);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
+  /* UX-11: os componentes usam `text-destructive` para erro, "Cancelar", "Excluir" e "Sair".
+     Com o vermelho escuro de antes (0.396) esse texto ficava a ~1,7:1 sobre o cartão escuro. */
+  --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.637 0.237 25.331);
   --border: oklch(0.269 0.006 285.885);
   --input: oklch(0.269 0.006 285.885);
@@ -143,6 +188,31 @@
   [data-motion='lift'] {
     transform: translateZ(0);
   }
+}
+
+/* ARQ-10: barra de rolagem e anel de foco vieram do globals.scss (apagado) e agora usam tokens.
+   Ficam fora de @layer de propósito, como antes: valem mesmo sobre `outline-none`. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 @keyframes leemia-intro-veil-failsafe {

@@ -115,8 +115,13 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: Emplo
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={loading}
+              aria-invalid={Boolean(errors.name)}
             />
-            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+            {errors.name && (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.name}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -129,8 +134,13 @@ export function EmployeeDialog({ open, onOpenChange, employee, onSubmit }: Emplo
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
               aria-describedby="employee-email-hint"
+              aria-invalid={Boolean(errors.email)}
             />
-            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+            {errors.email && (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.email}
+              </p>
+            )}
             <p id="employee-email-hint" className="text-xs text-muted-foreground">
               {emailHint}
             </p>

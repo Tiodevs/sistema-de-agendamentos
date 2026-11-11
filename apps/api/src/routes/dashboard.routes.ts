@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { DashboardController } from '../controllers/dashboard.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 
 const dashboardRouter = Router();
-const dashboardController = new DashboardController();
+const dashboardController = asyncController(new DashboardController());
 
 /**
  * @swagger

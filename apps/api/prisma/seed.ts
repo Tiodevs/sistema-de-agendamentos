@@ -123,7 +123,7 @@ async function upsertUser(
     name: string;
     email: string;
     phone?: string | null;
-    role: string;
+    role: 'USER' | 'ADMIN' | 'EMPLOYEE';
     fictitious: boolean;
   },
 ) {

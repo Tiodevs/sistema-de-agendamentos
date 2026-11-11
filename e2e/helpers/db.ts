@@ -206,7 +206,8 @@ export async function sweepE2eDatabase(mode: 'leftover' | 'all') {
     });
 
     const toDelete = candidates.filter((user) => {
-      const email = user.email.toLowerCase();
+      // Cliente rápido (UX-03) pode não ter e-mail; os do E2E sempre têm.
+      const email = (user.email ?? '').toLowerCase();
       if (keep.has(email)) return false;
       return isDisposableE2eEmail(email) || extraEmails.includes(email);
     });
@@ -215,6 +216,16 @@ export async function sweepE2eDatabase(mode: 'leftover' | 'all') {
       prisma,
       toDelete.map((user) => user.id),
     );
+
+    // Fila de e-mails (ARQ-02): os avisos das contas descartáveis saem junto com elas.
+    await prisma.emailOutbox.deleteMany({
+      where: {
+        OR: [
+          { recipient: { startsWith: 'e2e.' } },
+          ...(extraEmails.length ? [{ recipient: { in: extraEmails } }] : []),
+        ],
+      },
+    });
 
     return { appointments: marked.count, users: toDelete.length };
   });

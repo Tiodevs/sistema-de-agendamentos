@@ -74,6 +74,7 @@ export function RankingList({
                 type="button"
                 onClick={() => onSelect(selected ? '' : item.id)}
                 className={className}
+                aria-pressed={selected}
               >
                 {body}
               </button>

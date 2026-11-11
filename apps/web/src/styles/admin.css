@@ -1,7 +1,8 @@
 .admin-theme {
   --radius: 1.5rem;
-  --admin-accent: #34c3dd;
-  --admin-accent-foreground: #052530;
+  /* ARQ-10: o destaque da marca mora em tokens.css; aqui só o apelido usado no painel. */
+  --admin-accent: var(--brand-accent);
+  --admin-accent-foreground: var(--brand-accent-foreground);
   --admin-rail: oklch(0.24 0.018 220);
   --admin-rail-ring: oklch(1 0 0 / 0.12);
   --admin-panel: oklch(0.185 0.005 285.885);

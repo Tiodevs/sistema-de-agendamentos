@@ -155,7 +155,7 @@ A partir daqui, a parte técnica. Cada documento responde uma pergunta, em profu
 | Autenticação | JWT HS256 com versão de sessão e senhas com bcrypt                                                                      |
 | Integrações  | Resend (e-mail transacional) e bucket S3 do Railway (fotos de perfil)                                                   |
 | Testes       | `node:test` com tsx nos unitários e Playwright no E2E de API e de interface                                             |
-| Qualidade    | Prettier com Husky e lint-staged no commit                                                                              |
+| Qualidade    | ESLint 9 (flat config, com regras de promise solta), Prettier e typecheck no commit, via Husky e lint-staged            |
 | Entrega      | GitHub Actions (CI e deploy com aprovação), Vercel (web), Railway (API e PostgreSQL) e Docker Compose no ambiente local |
 
 ## Arquitetura
@@ -267,6 +267,8 @@ npm run dev
 | `npm test`                            | Testes unitários da API e do web                                  |
 | `npm run test:e2e`                    | Suíte E2E estável contra o ambiente Docker                        |
 | `npm run build`                       | Build da API e do web                                             |
+| `npm run lint`                        | ESLint no repositório inteiro (`eslint.config.mjs`)               |
+| `npm run typecheck`                   | `tsc --noEmit` na API e no web                                    |
 | `npm run format`                      | Prettier no repositório inteiro                                   |
 | `npm run db:tunnel`                   | Túnel para o Postgres de **produção** (`:5433`), só para consulta |
 

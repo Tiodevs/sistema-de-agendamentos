@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { AuthController } from '../controllers/auth.controller';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 import { authMiddleware, optionalAuthMiddleware } from '../middlewares/auth.middleware';
@@ -6,7 +7,7 @@ import { rateLimitByIp, rateLimitByUser } from '../middlewares/rate-limit.middle
 import { handleAvatarUpload } from '../middlewares/upload.middleware';
 
 const authRouter = Router();
-const authController = new AuthController();
+const authController = asyncController(new AuthController());
 
 /**
  * @swagger
@@ -556,6 +557,52 @@ authRouter.delete('/profile/avatar', authMiddleware, (req, res, next) =>
  */
 authRouter.get('/clients', authMiddleware, adminMiddleware, (req, res, next) =>
   authController.getClients(req, res, next),
+);
+
+/**
+ * @swagger
+ * /api/auth/clients:
+ *   post:
+ *     summary: Cadastrar cliente rápido (Admin)
+ *     description: >-
+ *       Cria um cliente sem senha, para a recepção agendar quem ligou. É preciso informar telefone
+ *       ou e-mail. Com e-mail, o cliente recebe um link para criar a senha (7 dias). Se já existir
+ *       conta com o mesmo e-mail ou telefone, responde 409 com `code: CLIENT_EXISTS` e o cliente
+ *       existente em `details.client`.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Ana Souza
+ *               phone:
+ *                 type: string
+ *                 example: (11) 98888-7777
+ *               email:
+ *                 type: string
+ *                 format: email
+ *     responses:
+ *       201:
+ *         description: Cliente cadastrado
+ *       400:
+ *         description: Dados inválidos
+ *       409:
+ *         description: Já existe cliente com este e-mail ou telefone
+ */
+authRouter.post(
+  '/clients',
+  authMiddleware,
+  adminMiddleware,
+  rateLimitByUser('create-client', 120, 60 * 60 * 1000),
+  (req, res, next) => authController.createClient(req, res, next),
 );
 
 /**

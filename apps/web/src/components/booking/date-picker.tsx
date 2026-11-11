@@ -242,12 +242,13 @@ export function BookingDatePicker({
               onClick={() => onChange(dateKey)}
               aria-label={formatLongDate(dateKey)}
               aria-pressed={selected}
+              aria-current={isToday ? 'date' : undefined}
               className={cn(
                 'flex h-11 items-center justify-center rounded-2xl text-sm font-medium transition-colors sm:h-10',
                 disabled && 'cursor-not-allowed text-muted-foreground/35',
                 !disabled && !selected && 'hover:bg-[var(--admin-hover)]',
                 selected && 'bg-primary text-primary-foreground',
-                isToday && !selected && 'text-[var(--admin-accent)]',
+                isToday && !selected && 'text-brand-ink',
               )}
             >
               {day}

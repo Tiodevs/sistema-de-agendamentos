@@ -19,9 +19,10 @@ Repositório: [Tiodevs/sistema-de-agendamentos](https://github.com/Tiodevs/siste
 
 - Cadastro de cliente (`USER`) com nome, e-mail, senha (mín. 8, com letra maiúscula e caractere especial) e telefone opcional. A conta já entra, mas só reserva depois de confirmar o e-mail pelo link (24 h, `POST /api/auth/verify-email/resend` reenvia). O e-mail de boas-vindas vai depois da confirmação. Contas anteriores a essa regra ficaram confirmadas na migration. Contas antigas continuam podendo entrar com a senha que já tinham.
 - Login com JWT (`Bearer`, `alg=HS256`), validade configurável (`JWT_EXPIRES_IN`, padrão 12 horas). Payload: `{ id, email, role, tv }`.
-- Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`. `POST /api/auth/logout` incrementa `tokenVersion` e derruba todas as sessões da conta.
+- Sessão no browser via `localStorage` (`token` + `user`); validação com `GET /api/auth/me`. `POST /api/auth/logout` incrementa `tokenVersion` e derruba todas as sessões da conta. Um cookie sem o token (`leemia_session`, `leemia_role`) só avisa o servidor do Next de que há sessão: o `middleware.ts` manda o visitante de rota privada para `/login?next=…` e evita a landing piscar para quem está logado. Quando o JWT vence, qualquer chamada autenticada que volta 401 limpa a sessão e leva ao login, voltando depois para a mesma tela. Sair numa aba vale para as outras.
 - Redirecionamento pós-login por papel: admin → `/admin`, profissional → `/professional`, cliente → `/`.
-- Troca de e-mail no perfil exige confirmação pelo link enviado ao endereço novo; o e-mail atual só muda depois disso.
+- Troca de e-mail no perfil exige confirmação pelo link enviado ao endereço novo; o e-mail atual só muda depois disso. A resposta é a mesma quando o endereço novo já é de outra conta (nenhum link é enviado), para não revelar quem é cliente.
+- Cliente rápido: o admin cadastra quem ligou só com nome e telefone (`POST /api/auth/clients`), sem senha. Com e-mail, a pessoa recebe um link de 7 dias para criar a senha; sem e-mail, a conta existe só para a agenda e não recebe avisos.
 - Contas podem ser desativadas (`active = false`); login responde a mesma `401` de credencial inválida (com hash dummy) para não enumerar contas.
 - Senha armazenada com bcrypt (custo 12). Login de contas antigas não exige a política nova.
 - Listagem/busca de clientes restrita a admin (`GET /api/auth/clients`).
@@ -98,8 +99,8 @@ Fechar um dia, criar horário especial, mudar o expediente (do estúdio ou do pr
 - Refresh token / cookie `httpOnly` / 2FA.
 - Rate limit distribuído (Redis) e CAPTCHA após N falhas de login.
 - Multi-empresa / multi-tenant.
-- Fila, cache Redis ou filas de job.
-- Testes automatizados.
+- Cache Redis. A fila que existe é a de e-mails, no próprio Postgres (`email_outbox`).
+- Lembrete automático do horário (a fila já aceita envio agendado; falta o job).
 
 ---
 
@@ -291,7 +292,9 @@ Next.js 15 App Router, quase tudo **Client Components** (`'use client'`). Dados 
 | `bcryptjs`                             | hash de senha              |
 | `jsonwebtoken`                         | JWT                        |
 | `zod`                                  | validação                  |
-| `cors`, `helmet`, `morgan`             | CORS, headers, access log  |
+| `cors`, `helmet`                       | CORS, headers              |
+| `pino` + `pino-http`                   | log estruturado (JSON)     |
+| `@sentry/node`                         | erros (só com SENTRY_DSN)  |
 | `dotenv`                               | `.env`                     |
 | `swagger-jsdoc` + `swagger-ui-express` | OpenAPI                    |
 | `tsx`                                  | dev + seed                 |
@@ -377,4 +380,4 @@ Enquanto a variável `DEPLOY_ENABLED` não estiver ligada, vale o caminho anteri
 
 ## 11. Convenções
 
-[Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`. Husky + lint-staged (Prettier/ESLint) no commit.
+[Conventional Commits](https://www.conventionalcommits.org/): `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`. No commit, o Husky roda o lint-staged (ESLint com `--fix` e Prettier nos arquivos alterados) e o `npm run typecheck`. O ESLint é um arquivo só, `eslint.config.mjs` na raiz (`npm run lint`).

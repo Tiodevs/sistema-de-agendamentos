@@ -1,4 +1,22 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import {
+  ApiError,
+  INVALID_RESPONSE_MESSAGE,
+  SESSION_EXPIRED_MESSAGE,
+  apiErrorMessage,
+  apiFieldErrors,
+  errorFromFailure,
+  errorFromResponse,
+  isAbortError,
+  isApiError,
+} from './api-error';
+import { DEFAULT_TIMEOUT_MS, UPLOAD_TIMEOUT_MS, createRequestSignal } from './request-signal';
+
+// ARQ-09: em produção o build falha sem NEXT_PUBLIC_API_URL (checagem no next.config.ts), então
+// este fallback só vale no dev local e nos testes.
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(
+  /\/+$/,
+  '',
+);
 
 interface ApiResponse<T> {
   status: 'success' | 'error';
@@ -10,6 +28,26 @@ interface ApiResponse<T> {
   /** Dados para a tela decidir, por exemplo a lista de agendamentos afetados (DOM-02). */
   details?: Record<string, unknown>;
 }
+
+import type {
+  Appointment as AppointmentContract,
+  AppointmentListQuery,
+  AppointmentPage,
+  AppointmentStatus as AppointmentStatusContract,
+  Availability,
+  AvailabilitySlot as AvailabilitySlotContract,
+  ClientExistsDetails,
+  ClientListItem,
+  CreateClientBody,
+  CreateClientResult,
+  Pagination,
+  TimeRange,
+} from '@agendamentos/contracts';
+
+export type { ClientExistsDetails, CreateClientBody, CreateClientResult, TimeRange };
+
+/** Chamadas de leitura aceitam um `signal` para cancelar (TanStack Query, troca de filtro). */
+export type ReadOptions = { signal?: AbortSignal };
 
 export interface AuthData {
   user: {
@@ -28,42 +66,39 @@ export interface AuthData {
   token: string;
 }
 
-export class ApiError extends Error {
-  statusCode: number;
-  status: 'error';
-  code?: string;
-  errors?: Array<{ field: string; message: string }>;
-  details?: Record<string, unknown>;
+// As telas importam tudo de `@/lib/api`; a lógica pura mora em `api-error.ts` para ser testável.
+export { ApiError, apiErrorMessage, apiFieldErrors, isAbortError, isApiError };
 
-  constructor(
-    statusCode: number,
-    message: string,
-    errors?: Array<{ field: string; message: string }>,
-    code?: string,
-    details?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-    this.statusCode = statusCode;
-    this.status = 'error';
-    this.code = code;
-    this.errors = errors;
-    this.details = details;
-  }
+type UnauthorizedHandler = (token: string) => void;
+
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+/**
+ * ARQ-09: ponto único do 401. O `AuthProvider` registra aqui o que fazer quando uma chamada
+ * autenticada volta 401 (JWT de 12 h vencido): limpar a sessão e levar ao login. O handler
+ * recebe o token usado na chamada, para ignorar resposta atrasada de uma sessão antiga.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
+  unauthorizedHandler = handler;
 }
 
-/** Mensagem da API para o toast; erro de rede ou inesperado cai no texto padrão. */
-export function apiErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.message) return error.message;
-  return fallback;
-}
+type ApiRequestOptions = RequestInit & {
+  /** Prazo da chamada. Padrão: 15 s; 60 s quando o corpo é upload (FormData). */
+  timeoutMs?: number;
+  /** 401 daqui não derruba a sessão (login com senha errada, logout). */
+  skipUnauthorizedHandler?: boolean;
+};
 
-async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+async function apiRequest<T>(
+  endpoint: string,
+  options: ApiRequestOptions = {},
+): Promise<ApiResponse<T>> {
+  const { timeoutMs, skipUnauthorizedHandler, signal: callerSignal, ...init } = options;
   const url = `${API_BASE_URL}${endpoint}`;
-  const headers = new Headers(options.headers);
+  const headers = new Headers(init.headers);
 
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  if (options.body && !isFormData && !headers.has('Content-Type')) {
+  const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
+  if (init.body && !isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -72,23 +107,39 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(url, { cache: 'no-store', ...options, headers });
+  const request = createRequestSignal(
+    callerSignal,
+    timeoutMs ?? (isFormData ? UPLOAD_TIMEOUT_MS : DEFAULT_TIMEOUT_MS),
+  );
+
+  let response: Response;
   let data: ApiResponse<T> | null = null;
   try {
-    data = (await response.json()) as ApiResponse<T>;
-  } catch {
-    throw new ApiError(response.status || 500, 'Resposta inválida do servidor');
+    response = await fetch(url, { cache: 'no-store', ...init, headers, signal: request.signal });
+    try {
+      data = (await response.json()) as ApiResponse<T>;
+    } catch (error) {
+      // Prazo ou cancelamento no meio do corpo é falha da chamada; corpo que não é JSON, não.
+      if (request.signal.aborted) throw error;
+    }
+  } catch (error) {
+    throw errorFromFailure(error, {
+      callerAborted: Boolean(callerSignal?.aborted),
+      timedOut: request.timedOut(),
+    });
+  } finally {
+    request.dispose();
   }
 
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      data.message || 'Erro na requisição',
-      data.errors,
-      data.code,
-      data.details,
-    );
+  // 401 em chamada com token é sessão vencida ou revogada: o handler central cuida da saída e a
+  // tela recebe um texto que diz o que fazer.
+  if (response.status === 401 && token && !skipUnauthorizedHandler) {
+    unauthorizedHandler?.(token);
+    throw new ApiError(401, SESSION_EXPIRED_MESSAGE, undefined, data?.code);
   }
+
+  if (!response.ok) throw errorFromResponse(response.status, data);
+  if (!data) throw new ApiError(response.status, INVALID_RESPONSE_MESSAGE);
 
   return data;
 }
@@ -112,12 +163,16 @@ export async function loginUser(body: {
   return apiRequest<AuthData>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify(body),
+    // 401 aqui é e-mail ou senha errados, não sessão vencida.
+    skipUnauthorizedHandler: true,
   });
 }
 
 export async function logoutSession(): Promise<ApiResponse<void>> {
   return apiRequest('/api/auth/logout', {
     method: 'POST',
+    // A sessão já está saindo: token vencido não deve mandar para o login com `next`.
+    skipUnauthorizedHandler: true,
   });
 }
 
@@ -198,25 +253,10 @@ export async function deleteMyAvatar(): Promise<ApiResponse<{ user: AuthData['us
   });
 }
 
-export interface Client {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  role: string;
-  avatarUrl?: string | null;
-  active?: boolean;
-  createdAt?: string;
-  appointmentCount?: number;
-  lastAppointmentAt?: string | null;
-}
+/** Cliente como a API devolve (contrato compartilhado). `email` é `null` no cliente rápido. */
+export type Client = ClientListItem;
 
-export interface ClientsPagination {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
+export type ClientsPagination = Pagination;
 
 export interface ClientFavorite {
   id: string;
@@ -248,6 +288,7 @@ export interface GetClientsOptions {
 
 export async function getClients(
   searchOrOptions?: string | GetClientsOptions,
+  request: ReadOptions = {},
 ): Promise<ApiResponse<{ clients: Client[]; pagination?: ClientsPagination }>> {
   const options: GetClientsOptions =
     typeof searchOrOptions === 'string' ? { search: searchOrOptions } : (searchOrOptions ?? {});
@@ -259,7 +300,17 @@ export async function getClients(
   if (options.page) params.set('page', String(options.page));
   if (options.limit) params.set('limit', String(options.limit));
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiRequest(`/api/auth/clients${query}`);
+  return apiRequest(`/api/auth/clients${query}`, request);
+}
+
+/**
+ * UX-03: cliente rápido cadastrado pela recepção. Contato repetido volta 409 `CLIENT_EXISTS` com
+ * o cliente que já existe em `details` (`ClientExistsDetails`).
+ */
+export async function createClient(
+  body: CreateClientBody,
+): Promise<ApiResponse<CreateClientResult>> {
+  return apiRequest('/api/auth/clients', { method: 'POST', body: JSON.stringify(body) });
 }
 
 /* ─── Products ─── */
@@ -369,6 +420,8 @@ export interface EmployeePayload {
   email: string;
   phone?: string;
   avatar?: string;
+  /** Respiro, em minutos, entre dois atendimentos (UX-12). */
+  bufferMinutes?: number;
 }
 
 export async function getEmployees(
@@ -445,38 +498,9 @@ export async function assignEmployeeProducts(
 
 /* ─── Appointments ─── */
 
-export type AppointmentStatus =
-  | 'SCHEDULED'
-  | 'CONFIRMED'
-  | 'IN_PROGRESS'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'NO_SHOW';
+export type AppointmentStatus = AppointmentStatusContract;
 
-export interface Appointment {
-  id: string;
-  date: string;
-  endDate: string;
-  status: AppointmentStatus;
-  notes: string | null;
-  price: number;
-  client: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string | null;
-    avatarUrl?: string | null;
-  };
-  product: { id: string; name: string; duration: number; price: number };
-  employee: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string | null;
-    avatar?: string | null;
-  };
-  createdAt: string;
-  updatedAt: string;
+export interface Appointment extends AppointmentContract {
   /** Status que quem pediu pode marcar agora (DOM-01). A API decide; a tela só mostra. */
   allowedStatuses?: AppointmentStatus[];
   /** Até quando cliente e profissional cancelam sozinhos (DOM-09). Depois, só o estúdio. */
@@ -497,42 +521,33 @@ export interface AppointmentPayload {
   notes?: string;
 }
 
-export interface AvailabilitySlot {
-  start: string;
-  end: string;
-  available: boolean;
-}
+export type AvailabilitySlot = AvailabilitySlotContract;
+export type AvailabilityResponse = Availability;
 
-export interface AvailabilityResponse {
-  date: string;
-  employee: { id: string; name: string };
-  product: { id: string; name: string; duration: number };
-  businessHours: { start: string; end: string };
-  isClosed?: boolean;
-  slots: AvailabilitySlot[];
-}
+export type AppointmentsQuery = AppointmentListQuery;
 
-export async function getAppointments(filters?: {
-  employeeId?: string;
-  clientId?: string;
-  status?: string;
-  from?: string;
-  to?: string;
-}): Promise<ApiResponse<{ appointments: Appointment[] }>> {
+/**
+ * Agenda do admin (UX-09): paginada e, sem período nem cliente, a partir de hoje. A resposta
+ * traz `pagination` e o `period` que a API aplicou.
+ */
+export async function getAppointments(
+  filters: AppointmentsQuery = {},
+  request: ReadOptions = {},
+): Promise<ApiResponse<AppointmentPage>> {
   const params = new URLSearchParams();
-  if (filters?.employeeId) params.set('employeeId', filters.employeeId);
-  if (filters?.clientId) params.set('clientId', filters.clientId);
-  if (filters?.status) params.set('status', filters.status);
-  if (filters?.from) params.set('from', filters.from);
-  if (filters?.to) params.set('to', filters.to);
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  }
   const query = params.toString() ? `?${params.toString()}` : '';
-  return apiRequest(`/api/appointments${query}`);
+  return apiRequest(`/api/appointments${query}`, request);
 }
 
 export async function getClient(
   id: string,
+  request: ReadOptions = {},
 ): Promise<ApiResponse<{ client: Client; stats: ClientStats; appointments: Appointment[] }>> {
-  return apiRequest(`/api/auth/clients/${id}`);
+  // SEC-07: o id pode vir da URL da página; codificado, não muda o caminho da chamada.
+  return apiRequest(`/api/auth/clients/${encodeURIComponent(id)}`, request);
 }
 
 export async function getAppointment(
@@ -602,9 +617,10 @@ export async function getAvailableSlots(
   employeeId: string,
   productId: string,
   date: string,
+  request: ReadOptions = {},
 ): Promise<ApiResponse<AvailabilityResponse>> {
   const params = new URLSearchParams({ employeeId, productId, date });
-  return apiRequest(`/api/appointments/availability?${params.toString()}`);
+  return apiRequest(`/api/appointments/availability?${params.toString()}`, request);
 }
 
 /* ─── Schedule (Business Hours & Special Days) ─── */
@@ -647,6 +663,8 @@ export interface BusinessHour {
   openTime: string;
   closeTime: string;
   isClosed: boolean;
+  /** Pausas do dia (UX-12), ex.: almoço. */
+  breaks?: TimeRange[];
   dayName: string;
   createdAt: string;
   updatedAt: string;
@@ -657,6 +675,8 @@ export interface BusinessHourPayload {
   openTime: string;
   closeTime: string;
   isClosed: boolean;
+  /** Ausente = mantém as pausas já gravadas no dia. */
+  breaks?: TimeRange[];
 }
 
 export interface SpecialDay {
@@ -680,8 +700,10 @@ export interface SpecialDayPayload {
   closeTime?: string | null;
 }
 
-export async function getBusinessHours(): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
-  return apiRequest('/api/schedule/business-hours');
+export async function getBusinessHours(
+  request: ReadOptions = {},
+): Promise<ApiResponse<{ hours: BusinessHour[] }>> {
+  return apiRequest('/api/schedule/business-hours', request);
 }
 
 export async function updateAllBusinessHours(
@@ -741,6 +763,8 @@ export interface EmployeeSchedule {
   usesCustomHours: boolean;
   hours: BusinessHour[];
   specialDays: SpecialDay[];
+  /** Respiro, em minutos, entre dois atendimentos do profissional (UX-12). */
+  bufferMinutes?: number;
 }
 
 export async function getEmployeeScheduleSummaries(): Promise<
@@ -751,8 +775,9 @@ export async function getEmployeeScheduleSummaries(): Promise<
 
 export async function getEmployeeSchedule(
   employeeId: string,
+  request: ReadOptions = {},
 ): Promise<ApiResponse<EmployeeSchedule>> {
-  return apiRequest(`/api/schedule/employees/${employeeId}`);
+  return apiRequest(`/api/schedule/employees/${encodeURIComponent(employeeId)}`, request);
 }
 
 export async function updateEmployeeHours(
@@ -1008,6 +1033,8 @@ export async function acceptEmployeeInvite(body: {
   return apiRequest<AuthData>('/api/auth/invites/accept', {
     method: 'POST',
     body: JSON.stringify(body),
+    // Com senha, 401 é senha incorreta (mesmo caminho do login), não sessão vencida.
+    skipUnauthorizedHandler: body.password !== undefined,
   });
 }
 

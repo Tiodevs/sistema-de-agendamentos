@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { ListSkeleton, LoadError } from '@/components/shell/page-states';
 
 const ACTION_ICONS: Partial<Record<AppointmentStatus, LucideIcon>> = {
   CONFIRMED: CheckCircle2,
@@ -115,6 +116,8 @@ function studioOnlyHint(appointment: Appointment) {
 export default function ProfessionalAgendaPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum agendamento": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   // UX-05: "hoje" no fuso de São Paulo, não no relógio do aparelho.
   const [dateFrom, setDateFrom] = useState(() => todayDateKey());
@@ -138,7 +141,9 @@ export default function ProfessionalAgendaPage() {
       if (res.data?.appointments) {
         setAppointments(res.data.appointments);
       }
+      setLoadError(false);
     } catch {
+      if (requestId === requestRef.current) setLoadError(true);
       if (requestId === requestRef.current) toast.error('Erro ao carregar agendamentos');
     } finally {
       if (requestId === requestRef.current) setLoading(false);
@@ -146,7 +151,7 @@ export default function ProfessionalAgendaPage() {
   }, [dateFrom, dateTo, statusFilter]);
 
   useEffect(() => {
-    loadAppointments();
+    void loadAppointments();
   }, [loadAppointments]);
 
   // DOM-03: confirmar, iniciar, concluir, registrar falta e cancelar pela máquina de estados.
@@ -195,7 +200,7 @@ export default function ProfessionalAgendaPage() {
   const selectedGroups = groupActions(selectedAllowed);
   const selectedCancellation = selectedApt ? cancellationState(selectedApt, 'EMPLOYEE') : null;
 
-  if (loading) return null;
+  if (loading) return <ListSkeleton label="Carregando a agenda…" />;
 
   return (
     <StaggerIn selector="[data-motion='enter']" className="space-y-5">
@@ -213,6 +218,7 @@ export default function ProfessionalAgendaPage() {
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Buscar por cliente ou serviço..."
+                aria-label="Buscar por cliente ou serviço"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="rounded-full pl-10"
@@ -246,6 +252,7 @@ export default function ProfessionalAgendaPage() {
                   ? 'bg-[var(--admin-card-muted)] text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
+              aria-pressed={statusFilter === 'ALL'}
             >
               Todos
             </button>
@@ -260,6 +267,7 @@ export default function ProfessionalAgendaPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={statusFilter === status}
               >
                 {STATUS_CONFIG[status].label}
               </button>
@@ -268,7 +276,15 @@ export default function ProfessionalAgendaPage() {
         </div>
       </section>
 
-      {groupedByDate.length === 0 ? (
+      {loadError ? (
+        <LoadError
+          title="Não foi possível carregar a agenda"
+          onRetry={() => {
+            setLoading(true);
+            void loadAppointments();
+          }}
+        />
+      ) : groupedByDate.length === 0 ? (
         <section
           data-motion="enter"
           className="admin-surface flex flex-col items-center justify-center px-6 py-16"
@@ -324,6 +340,7 @@ export default function ProfessionalAgendaPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedId(appointment.id)}
+                        aria-haspopup="dialog"
                         className="flex min-w-0 flex-1 items-start gap-3 text-left sm:items-center"
                       >
                         <div className="flex w-[4.75rem] shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-[var(--admin-card-muted)] px-2 py-2.5 text-center">

@@ -24,7 +24,9 @@ Cliente e admin só cancelam (ou o admin apaga) e marcam de novo. Não há `PATC
 
 `business_hours` e `special_days` continuam sendo o padrão do estúdio. Cada profissional pode ter `employee_business_hours` e `employee_special_days`; sem essas linhas, herda o estabelecimento. Estúdio fechado (feriado ou domingo) fecha todo mundo. Folga do profissional fecha só a agenda dele.
 
-**Ainda falta:** intervalos / almoço e folga mínima entre agendamentos do mesmo profissional.
+Cada dia aceita até 4 pausas (almoço, intervalo), no estúdio e por profissional, e cada profissional pode ter um respiro em minutos entre dois atendimentos. Os horários dentro de uma pausa somem da grade, e criar uma pausa em cima de um horário marcado passa pela mesma pergunta de “agendamentos afetados”.
+
+**Ainda falta:** pausa em dia especial (hoje o dia especial tem só abertura e fechamento) e respiro por serviço.
 
 ### Sobreposição do mesmo cliente
 
@@ -46,17 +48,17 @@ Não há fila quando o slot enche, nem série semanal/mensal. Quem perdeu o hor�
 
 ### Admin opera catálogo e agenda, não a base de clientes
 
-Não existe `/admin/clients`. `GET /api/auth/clients` busca até 50 usuários ativos, só no fluxo “novo agendamento”. Não dá para desativar conta, promover a admin, ver histórico por pessoa nem anotar preferências.
+`/admin/clients` lista, busca e pagina os clientes no servidor, com a ficha e o histórico de cada um. O “novo agendamento” busca o cliente no servidor (qualquer cliente é encontrado) e cadastra na hora quem ligou e ainda não tem conta. Ainda não dá para desativar conta, promover a admin nem anotar preferências.
 
 Papel `ADMIN` nasce no seed/banco. Criar funcionário com o **mesmo e-mail** de um `USER` vira `EMPLOYEE` sem tela de confirmação.
 
-**Fazer:** tela de clientes (listar, buscar, desativar, histórico) e promoção de papel explícita na UI.
+**Fazer:** desativar conta pela tela, promoção de papel explícita na UI e notas por cliente.
 
 ### Agenda administrativa é lista, não calendário
 
-`/admin/appointments` e `/professional/agenda` carregam a coleção e filtram no browser. Sem visão semana/mês, arrastar horário, paginação na API nem recorte `from`/`to` obrigatório.
+`/admin/appointments` é paginada pela API, abre em “a partir de hoje” e tem filtro de período, status e busca pelo cliente. `/professional/agenda` ainda carrega a coleção do profissional e filtra no browser. Sem visão semana/mês nem arrastar horário.
 
-Com volume, a tela e o `findAll` sem `take` viram problema.
+Com volume, a agenda do profissional e “Meus horários” (sem `take`) ainda viram problema.
 
 **Fazer:** calendário semanal + paginação/cursor na API (admin e profissional).
 
@@ -119,7 +121,7 @@ O `findUnique` + `create` não trata `P2002`. Dois `POST /register` ao mesmo tem
 
 #### Cookie `httpOnly` + refresh rotativo
 
-O JWT ainda vai no `localStorage` e no JSON de login. Logout e `tokenVersion` já derrubam **todas** as sessões da conta no servidor, mas XSS na origem continua lendo o Bearer. Não há sessão por dispositivo: um “Sair” invalida o celular e o computador juntos.
+O JWT ainda vai no `localStorage` e no JSON de login. O curto prazo já está feito: o web envia CSP, `frame-ancestors 'none'`, `Referrer-Policy` e `Permissions-Policy`, e o rewrite `/api/*` do Next aponta para a API por variável (`API_PROXY_URL`), que é a base do proxy same-origin. Logout e `tokenVersion` já derrubam **todas** as sessões da conta no servidor, mas XSS na origem continua lendo o Bearer. Não há sessão por dispositivo: um “Sair” invalida o celular e o computador juntos.
 
 **Fazer:** cookie `httpOnly` + `Secure` + `SameSite`, TTL curto, refresh rotativo (e, se fizer sentido, sessão por device). No setup atual (Vercel + API no Railway) isso pede proxy same-origin no Next (`rewrites` para a API em produção) ou `SameSite=None` com CORS `credentials`. Sem isso o cookie não viaja bem entre os dois hosts. O rewrite de [apps/web/next.config.ts](./apps/web/next.config.ts) só aponta para `localhost:3001`.
 
@@ -148,20 +150,17 @@ Não há segundo fator.
 ### Dados e API
 
 - Tratar `P2002` (e `P2003` de FK) de forma genérica no `errorHandler`, não só no cadastro.
-- Health (`GET /api/health`) não fala com o Postgres — liveness, não readiness.
-- Swagger `servers` ainda cita `http://localhost:3001`.
-- Listagens grandes (`appointments`, `my`, agenda do profissional) sem paginação.
-- `packages/` do monorepo está vazio; front e API duplicam tipos de agendamento/status.
-- E-mail e qualquer trabalho atrasado rodam in-process (`void task().catch`). Sem fila, a API não lembra horário futuro se o processo morrer no meio.
+- Listagens grandes (`my`, agenda do profissional) sem paginação. A agenda do admin já é paginada.
+- `packages/contracts` tem os tipos do que trafega em JSON (sessão, cliente, agendamento, disponibilidade) e a API confere o contrato em tempo de compilação. Os schemas Zod continuam só na API, e o resto do `lib/api.ts` do web (serviços, equipe, painel) ainda declara os próprios tipos.
+- E-mails passam por uma fila no Postgres (`email_outbox`), com nova tentativa e envio agendado; o worker roda no processo da API. Falta o job de lembrete (D-1) e separar o worker quando houver mais de uma instância.
 
 ### Infra e operação
 
 - Local e produção usam o **mesmo** Postgres (túnel SSH). Seed e E2E mexem em dado real. Isolar banco de dev/E2E.
-- Deploy da API é `railway up` / upload — o serviço não está ligado ao GitHub. Web na Vercel sim. Sem CI (não há `.github/workflows`).
+- CI (`ci.yml`: build, testes, lint, contrato do banco e E2E) e deploy com aprovação (`deploy.yml`) em `.github/workflows`.
 - Ajustar `JWT_EXPIRES_IN` no Railway para `12h` se a variável ainda estiver `7d` (o padrão do código já é 12h).
-- Observabilidade: Morgan em `dev`, `console.error` no handler. Sem APM, métricas de negócio nem alerta de 5xx.
+- Observabilidade: log estruturado (pino) com id de requisição e Sentry na API quando `SENTRY_DSN` está definido. Falta criar o projeto no Sentry e o alerta de taxa de 5xx, o Sentry no web e métricas de negócio.
 - Backup/restore do Postgres não está documentado no repo (fica o que o Railway retém).
-- [docs/aplicacao.md](./docs/aplicacao.md) ainda diz que não há testes automatizados — a suíte Playwright em `e2e/` já existe.
 
 ### Qualidade e testes
 

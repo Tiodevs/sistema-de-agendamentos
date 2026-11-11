@@ -1,3 +1,4 @@
+import { breakIntervals, overlaps } from './booking-slot';
 import { zonedDateFromKeyAndTime } from './datetime';
 import {
   resolveHoursForDate,
@@ -85,7 +86,10 @@ export function hoursFor(config: ScheduleConfig, dateKey: string): DayHours {
   });
 }
 
-/** O atendimento inteiro cabe no expediente do dia (aberto, começa depois e termina antes). */
+/**
+ * O atendimento inteiro cabe no expediente do dia (aberto, começa depois e termina antes) e não
+ * esbarra em nenhuma pausa (UX-12).
+ */
 export function appointmentFitsHours(
   appointment: { date: Date; endDate: Date },
   hours: DayHours,
@@ -94,7 +98,9 @@ export function appointmentFitsHours(
   if (hours.isClosed) return false;
   const open = zonedDateFromKeyAndTime(dateKey, hours.openTime);
   const close = zonedDateFromKeyAndTime(dateKey, hours.closeTime);
-  return appointment.date >= open && appointment.endDate <= close;
+  if (appointment.date < open || appointment.endDate > close) return false;
+  const interval = { start: appointment.date, end: appointment.endDate };
+  return !breakIntervals(dateKey, hours.breaks).some((pause) => overlaps(interval, pause));
 }
 
 /**

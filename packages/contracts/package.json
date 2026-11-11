@@ -1,0 +1,12 @@
+{
+  "name": "@agendamentos/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contrato entre a API e o web: os tipos do que trafega em JSON (ARQ-04)",
+  "types": "./index.d.ts",
+  "main": "./index.js",
+  "files": [
+    "index.d.ts",
+    "index.js"
+  ]
+}

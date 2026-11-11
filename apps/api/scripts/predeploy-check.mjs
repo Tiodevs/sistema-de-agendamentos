@@ -55,6 +55,24 @@ async function check(client) {
     }
   }
 
+  // ARQ-04: a migration que transforma `users.role` em enum falha no meio se houver um papel
+  // fora da lista. Enquanto a coluna ainda é texto, confere antes.
+  const {
+    rows: [roleColumn],
+  } = await client.query(
+    `SELECT data_type FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role'`,
+  );
+  let invalidRoles = [];
+  if (roleColumn?.data_type === 'text') {
+    invalidRoles = (
+      await client.query(
+        `SELECT role, count(*)::int AS total FROM users
+          WHERE role NOT IN ('USER', 'ADMIN', 'EMPLOYEE') GROUP BY role ORDER BY role`,
+      )
+    ).rows;
+  }
+
   const failed = tables.has_migrations
     ? (
         await client.query(
@@ -83,6 +101,17 @@ async function check(client) {
     }
     if (conflictCount > conflicts.length) {
       console.error(`  … e mais ${conflictCount - conflicts.length} par(es).`);
+    }
+    return 1;
+  }
+
+  if (invalidRoles.length > 0) {
+    console.error(
+      '[predeploy] Deploy parado antes das migrations (ARQ-04): há contas com papel fora de ' +
+        'USER, ADMIN e EMPLOYEE. Corrija o papel dessas contas e faça o deploy de novo.',
+    );
+    for (const row of invalidRoles) {
+      console.error(`  papel "${row.role}": ${row.total} conta(s)`);
     }
     return 1;
   }

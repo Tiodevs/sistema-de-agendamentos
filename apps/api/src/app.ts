@@ -1,11 +1,11 @@
-import express, { type Request, type Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import { router } from './routes';
 import { errorHandler } from './middlewares/errorHandler';
 import { requestIdMiddleware } from './middlewares/request-id.middleware';
+import { requestLogMiddleware } from './middlewares/request-log.middleware';
 import { swaggerSpec } from './config/swagger';
 import { configureTrustProxy } from './lib/request-ip';
 
@@ -41,8 +41,7 @@ app.use(
   }),
 );
 app.use(requestIdMiddleware);
-morgan.token<Request, Response>('request-id', (_req, res) => String(res.locals.requestId ?? '-'));
-app.use(morgan(':request-id :method :url :status :response-time ms'));
+app.use(requestLogMiddleware);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

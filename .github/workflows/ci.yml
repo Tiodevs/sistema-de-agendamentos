@@ -11,9 +11,8 @@
 # O `deploy.yml` escuta este workflow pelo nome `ci`, em `workflow_run`, e publica quando ele
 # termina verde num push para a `main`. Renomear o `name` abaixo desliga o deploy.
 #
-# Lint e Prettier ficam de fora por enquanto: o `npm run lint` dos dois apps não roda (ESLint 9
-# sem `eslint.config`, e o `next lint` abre um prompt interativo) e o Prettier acusa 19 arquivos.
-# Quando os dois passarem na máquina, entram como um passo nos jobs `api` e `web`.
+# O lint (ESLint 9, `eslint.config.mjs` da raiz) roda como um passo dos jobs `api` e `web`, para
+# não mudar a lista de checks obrigatórios da `main`. O Prettier continua só no pre-commit.
 name: ci
 
 on:
@@ -61,6 +60,10 @@ jobs:
       # strict é a checagem de tipos da API.
       - name: Build (Prisma Client e tsc)
         run: npm run build --workspace=apps/api
+      # ESLint da API, dos pacotes compartilhados, do E2E e dos scripts. As regras com tipos
+      # (promise solta) usam o Prisma Client gerado no passo anterior.
+      - name: Lint
+        run: npx eslint apps/api packages e2e scripts --max-warnings=0
       # node:test + tsx em apps/api/test, pelo scripts/run-node-tests.mjs (funciona no Node 20).
       # Inclui a compilação dos comentários @swagger das rotas.
       - name: Testes de unidade
@@ -81,6 +84,9 @@ jobs:
         run: npm ci
       - name: Testes de unidade
         run: npm run test --workspace=apps/web
+      # ESLint do web: regras do Next (core-web-vitals) e as de promise solta.
+      - name: Lint
+        run: npx eslint apps/web --max-warnings=0
       # O `next build` também confere os tipos do app (o `next-env.d.ts` que o tsc precisa só
       # existe depois dele). NEXT_PUBLIC_API_URL entra no bundle durante o build: aqui vale a API
       # local, porque o build só prova que compila. O deploy.yml builda de novo com a URL de cada

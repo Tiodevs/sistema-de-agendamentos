@@ -34,7 +34,8 @@ export const appointmentInclude = {
 export function mapClientAvatar(client: {
   id: string;
   name: string;
-  email: string;
+  /** `null` no cliente cadastrado pela recepção sem e-mail (UX-03). */
+  email: string | null;
   phone: string | null;
   avatar: string | null;
   updatedAt: Date;
@@ -67,20 +68,33 @@ export function mapEmployeeAvatar(employee: {
   };
 }
 
-export function mapAppointment<
-  T extends {
-    price: unknown;
-    product: { price: unknown };
-    client: Parameters<typeof mapClientAvatar>[0];
-    employee: Parameters<typeof mapEmployeeAvatar>[0];
-  },
->(appointment: T) {
-  const { client, employee, ...rest } = appointment;
+type AppointmentRecord = {
+  price: unknown;
+  product: { price: unknown };
+  client: Parameters<typeof mapClientAvatar>[0];
+  employee: Parameters<typeof mapEmployeeAvatar>[0];
+};
+
+/** O agendamento como vai para o JSON: preços em número e as fotos já resolvidas. */
+export type MappedAppointment<T extends AppointmentRecord> = Omit<
+  T,
+  'client' | 'employee' | 'price' | 'product'
+> & {
+  price: number;
+  product: Omit<T['product'], 'price'> & { price: number };
+  client: ReturnType<typeof mapClientAvatar>;
+  employee: ReturnType<typeof mapEmployeeAvatar>;
+};
+
+export function mapAppointment<T extends AppointmentRecord>(appointment: T): MappedAppointment<T> {
+  const { client, employee, price, product, ...rest } = appointment;
+  // O tipo de retorno diz `number` nos preços (e não o Decimal do Prisma): é o que o contrato com
+  // o web confere (ARQ-04). O TypeScript não deriva isso sozinho de um spread genérico.
   return {
     ...rest,
-    price: Number(appointment.price),
-    product: { ...appointment.product, price: Number(appointment.product.price) },
+    price: Number(price),
+    product: { ...product, price: Number(product.price) },
     client: mapClientAvatar(client),
     employee: mapEmployeeAvatar(employee),
-  };
+  } as MappedAppointment<T>;
 }

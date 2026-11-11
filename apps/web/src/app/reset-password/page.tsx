@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { resetPassword } from '@/lib/api';
+import { apiErrorMessage, apiFieldErrors, resetPassword } from '@/lib/api';
 import { readAuthLinkToken, stripAuthLinkTokenFromUrl } from '@/lib/auth-link-token';
 import {
   PASSWORD_MAX_LENGTH,
@@ -73,18 +73,11 @@ export default function ResetPasswordPage() {
       await logout({ notifyServer: false });
       router.replace('/login?reset=1');
     } catch (err: unknown) {
-      const apiError = err as {
-        message?: string;
-        errors?: Array<{ field: string; message: string }>;
-      };
-      if (apiError.errors) {
-        const errors: Record<string, string> = {};
-        apiError.errors.forEach((fieldError) => {
-          errors[fieldError.field] = fieldError.message;
-        });
-        setFieldErrors(errors);
+      const fields = apiFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
       } else {
-        setError(apiError.message || 'Não foi possível redefinir a senha');
+        setError(apiErrorMessage(err, 'Não foi possível redefinir a senha. Tente de novo.'));
       }
     } finally {
       setIsLoading(false);

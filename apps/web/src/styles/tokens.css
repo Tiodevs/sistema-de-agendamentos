@@ -1,0 +1,89 @@
+/*
+ * UX-11 / ARQ-10 — cores de status, de tom e de destaque, por tema.
+ *
+ * As cores antigas (sky-400, emerald-300/400, red-400, #34c3dd) foram escolhidas para fundo
+ * escuro: no tema claro ficavam abaixo de 4,5:1. Aqui cada cor tem um tom para cada tema:
+ * ~800 no claro (texto sobre branco, painel e cartão cinza), os tons de sempre no escuro.
+ * Todo par texto/fundo desta lista passa de 4,5:1 nos dois temas, inclusive o texto sobre o
+ * próprio fundo suave (`-bg`).
+ *
+ * `-bg` é o fundo suave (12% da cor) e `-border` a borda (30%). O Tailwind enxerga tudo isso
+ * pelo `@theme inline` do globals.css: `text-status-confirmed`, `bg-status-confirmed-bg`,
+ * `border-status-confirmed-border`, `text-tone-warning`, `bg-brand`, `text-brand-ink`…
+ */
+
+:root {
+  /* Destaque da marca. `-text` é o mesmo destaque quando vira texto ou ícone sobre a tela. */
+  --brand-accent: #34c3dd;
+  --brand-accent-foreground: #052530;
+  --brand-accent-text: #155e75;
+
+  /* Anel de foco do teclado (era um hsl fixo no globals.scss). */
+  --focus-ring: #3b82f6;
+
+  /* Tons de aviso usados fora dos status (alertas, selos, variação de KPI). */
+  --tone-info: #075985;
+  --tone-success: #166534;
+  --tone-warning: #92400e;
+  --tone-danger: #991b1b;
+  --tone-neutral: #52525b;
+
+  /* "Concluído" é um verde à parte de "Confirmado": os dois aparecem lado a lado na barra. */
+  --status-completed: #065f46;
+
+  /* Cores dos avatares e ícones de serviço (lib/admin-accents.ts). */
+  --chip-cyan: var(--brand-accent-text);
+  --chip-violet: #6d28d9;
+  --chip-sky: #075985;
+  --chip-orange: #9a3412;
+  --chip-emerald: #166534;
+}
+
+.dark {
+  --brand-accent-text: var(--brand-accent);
+
+  --tone-info: #38bdf8;
+  --tone-success: #34d399;
+  --tone-warning: #fbbf24;
+  --tone-danger: #f87171;
+  --tone-neutral: #a1a1aa;
+
+  --status-completed: #6ee7b7;
+
+  --chip-violet: #a78bfa;
+  --chip-sky: #38bdf8;
+  --chip-orange: #fb923c;
+  --chip-emerald: #34d399;
+}
+
+:root,
+.dark {
+  /* Um token por status do agendamento ("Concluído" tem cor própria, definida acima). */
+  --status-scheduled: var(--tone-info);
+  --status-confirmed: var(--tone-success);
+  --status-in-progress: var(--brand-accent-text);
+  --status-cancelled: var(--tone-danger);
+  --status-no-show: var(--tone-neutral);
+
+  --status-scheduled-bg: color-mix(in srgb, var(--status-scheduled) 12%, transparent);
+  --status-scheduled-border: color-mix(in srgb, var(--status-scheduled) 30%, transparent);
+  --status-confirmed-bg: color-mix(in srgb, var(--status-confirmed) 12%, transparent);
+  --status-confirmed-border: color-mix(in srgb, var(--status-confirmed) 30%, transparent);
+  --status-in-progress-bg: color-mix(in srgb, var(--status-in-progress) 12%, transparent);
+  --status-in-progress-border: color-mix(in srgb, var(--status-in-progress) 30%, transparent);
+  --status-completed-bg: color-mix(in srgb, var(--status-completed) 12%, transparent);
+  --status-completed-border: color-mix(in srgb, var(--status-completed) 30%, transparent);
+  --status-cancelled-bg: color-mix(in srgb, var(--status-cancelled) 12%, transparent);
+  --status-cancelled-border: color-mix(in srgb, var(--status-cancelled) 30%, transparent);
+  --status-no-show-bg: color-mix(in srgb, var(--status-no-show) 12%, transparent);
+  --status-no-show-border: color-mix(in srgb, var(--status-no-show) 30%, transparent);
+
+  --tone-info-bg: color-mix(in srgb, var(--tone-info) 12%, transparent);
+  --tone-info-border: color-mix(in srgb, var(--tone-info) 30%, transparent);
+  --tone-success-bg: color-mix(in srgb, var(--tone-success) 12%, transparent);
+  --tone-success-border: color-mix(in srgb, var(--tone-success) 30%, transparent);
+  --tone-warning-bg: color-mix(in srgb, var(--tone-warning) 12%, transparent);
+  --tone-warning-border: color-mix(in srgb, var(--tone-warning) 30%, transparent);
+  --tone-danger-bg: color-mix(in srgb, var(--tone-danger) 12%, transparent);
+  --tone-danger-border: color-mix(in srgb, var(--tone-danger) 30%, transparent);
+}

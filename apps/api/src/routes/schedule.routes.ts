@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { ScheduleController } from '../controllers/schedule.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 
 const scheduleRouter = Router();
-const scheduleController = new ScheduleController();
+const scheduleController = asyncController(new ScheduleController());
 
 /**
  * @swagger

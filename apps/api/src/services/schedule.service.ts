@@ -1,7 +1,14 @@
 import { prisma } from '../config/database';
 import { calendarDateUtc, formatDateKeyShort } from '../lib/datetime';
 import { httpError } from '../lib/http-error';
-import { DEFAULT_STUDIO_HOURS, resolveHoursForDate, type HourLike } from '../lib/schedule-hours';
+import type { Prisma } from '@prisma/client';
+import {
+  DEFAULT_STUDIO_HOURS,
+  parseBreaks,
+  resolveHoursForDate,
+  type HourLike,
+  type TimeRange,
+} from '../lib/schedule-hours';
 import type { ScheduleChange, SpecialOverride } from '../lib/schedule-impact';
 import {
   UpsertBusinessHourInput,
@@ -31,8 +38,26 @@ export interface ScheduleMutationOptions {
 
 type SpecialValues = { isClosed: boolean; openTime: string | null; closeTime: string | null };
 
-function withDayName<T extends { dayOfWeek: number }>(hour: T) {
-  return { ...hour, dayName: DAY_NAMES[hour.dayOfWeek] };
+function withDayName<T extends { dayOfWeek: number; breaks?: unknown }>(hour: T) {
+  return { ...hour, breaks: parseBreaks(hour.breaks), dayName: DAY_NAMES[hour.dayOfWeek] };
+}
+
+/** Cada pausa precisa ficar dentro do expediente do dia e não se sobrepor a outra (UX-12). */
+function assertBreaksInside(
+  hour: { isClosed: boolean; openTime: string; closeTime: string },
+  breaks: TimeRange[],
+) {
+  if (hour.isClosed) return;
+  let previousEnd = hour.openTime;
+  for (const range of breaks) {
+    if (range.start < hour.openTime || range.end > hour.closeTime) {
+      throw httpError('A pausa precisa ficar dentro do horário de atendimento do dia', 400);
+    }
+    if (range.start < previousEnd) {
+      throw httpError('As pausas do dia não podem se sobrepor', 400);
+    }
+    previousEnd = range.end;
+  }
 }
 
 function assertOpenBeforeClose(
@@ -46,13 +71,20 @@ function assertOpenBeforeClose(
   }
 }
 
-function toHour(data: UpsertBusinessHourInput): HourLike {
+/**
+ * `previousBreaks`: as pausas já gravadas no dia, mantidas quando o formulário não manda `breaks`
+ * (clientes antigos da API). Dia fechado não guarda pausa.
+ */
+function toHour(data: UpsertBusinessHourInput, previousBreaks: unknown = []) {
+  const breaks = data.isClosed ? [] : parseBreaks(data.breaks ?? previousBreaks);
+  assertBreaksInside(data, breaks);
   return {
     dayOfWeek: data.dayOfWeek,
     openTime: data.openTime,
     closeTime: data.closeTime,
     isClosed: data.isClosed,
-  };
+    breaks: breaks as unknown as Prisma.InputJsonValue,
+  } satisfies HourLike;
 }
 
 /** Valores do dia especial como ficam gravados (fechado não guarda horário). */
@@ -134,7 +166,8 @@ export class ScheduleService {
     const byDay = new Map<number, HourLike>(
       (current.length > 0 ? current : DEFAULT_STUDIO_HOURS).map((hour) => [hour.dayOfWeek, hour]),
     );
-    for (const hour of hours) byDay.set(hour.dayOfWeek, toHour(hour));
+    const next = hours.map((hour) => toHour(hour, byDay.get(hour.dayOfWeek)?.breaks));
+    for (const hour of next) byDay.set(hour.dayOfWeek, hour);
     const change: ScheduleChange = { studioHours: [...byDay.values()] };
 
     const affected = await scheduleImpactService.findAffected(change);
@@ -148,16 +181,13 @@ export class ScheduleService {
       reason,
       async (tx) => {
         const saved = [];
-        for (const hour of hours) {
+        for (const hour of next) {
+          const { dayOfWeek, ...values } = hour;
           saved.push(
             await tx.businessHour.upsert({
-              where: { dayOfWeek: hour.dayOfWeek },
-              create: toHour(hour),
-              update: {
-                openTime: hour.openTime,
-                closeTime: hour.closeTime,
-                isClosed: hour.isClosed,
-              },
+              where: { dayOfWeek },
+              create: hour,
+              update: values,
             }),
           );
         }
@@ -375,7 +405,13 @@ export class ScheduleService {
     const usesCustomHours = customHours.length > 0;
     const byDay = new Map<
       number,
-      { dayOfWeek: number; openTime: string; closeTime: string; isClosed: boolean }
+      {
+        dayOfWeek: number;
+        openTime: string;
+        closeTime: string;
+        isClosed: boolean;
+        breaks?: unknown;
+      }
     >();
     for (const hour of studioHours) {
       byDay.set(hour.dayOfWeek, hour);
@@ -394,6 +430,7 @@ export class ScheduleService {
       usesCustomHours,
       hours,
       specialDays: specialDays.map(mapSpecialDay),
+      bufferMinutes: employee.bufferMinutes,
     };
   }
 
@@ -408,9 +445,13 @@ export class ScheduleService {
       assertOpenBeforeClose(hour.isClosed, hour.openTime, hour.closeTime);
     }
 
+    const previous = await prisma.employeeBusinessHour.findMany({ where: { employeeId } });
+    const previousBreaks = new Map(previous.map((hour) => [hour.dayOfWeek, hour.breaks]));
+    const next = hours.map((hour) => toHour(hour, previousBreaks.get(hour.dayOfWeek)));
+
     const affected = await scheduleImpactService.findAffected({
       employeeId,
-      employeeHours: hours.map(toHour),
+      employeeHours: next,
     });
     scheduleImpactService.requireDecision(affected, options.onAffected, 'fora do novo horário');
 
@@ -422,7 +463,7 @@ export class ScheduleService {
       async (tx) => {
         await tx.employeeBusinessHour.deleteMany({ where: { employeeId } });
         await tx.employeeBusinessHour.createMany({
-          data: hours.map((hour) => ({ employeeId, ...toHour(hour) })),
+          data: next.map((hour) => ({ employeeId, ...hour })),
         });
       },
     );
@@ -585,7 +626,7 @@ export class ScheduleService {
   private async requireEmployee(employeeId: string) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { id: true, name: true, active: true },
+      select: { id: true, name: true, active: true, bufferMinutes: true },
     });
     if (!employee) {
       throw httpError('Funcionário não encontrado', 404);

@@ -23,10 +23,12 @@ FROM base AS api-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/*
-# O npm ci valida o lockfile contra todos os workspaces, então os dois package.json entram.
+# O npm ci valida o lockfile contra todos os workspaces, então os package.json de todos entram.
+# packages/contracts é só de tipos (o contrato entre a API e o web): entra inteiro, para o tsc.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY packages/contracts packages/contracts
 
 FROM api-base AS api-build
 RUN --mount=type=cache,target=/root/.npm npm ci --workspace=apps/api
@@ -58,6 +60,7 @@ FROM base AS web-deps
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY packages/contracts packages/contracts
 RUN --mount=type=cache,target=/root/.npm npm ci --workspace=apps/web
 
 FROM web-deps AS web-build

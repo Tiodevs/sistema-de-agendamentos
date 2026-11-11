@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { AppointmentController } from '../controllers/appointment.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 import { rateLimitByUser } from '../middlewares/rate-limit.middleware';
 
 const appointmentRouter = Router();
-const appointmentController = new AppointmentController();
+const appointmentController = asyncController(new AppointmentController());
 
 /**
  * @swagger
@@ -251,7 +252,9 @@ appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
  * /api/appointments:
  *   get:
  *     summary: Listar agendamentos (Admin)
- *     description: Retorna agendamentos com filtros opcionais. Restrito a administradores.
+ *     description: >-
+ *       Agenda paginada, do mais próximo para o mais distante. Sem `from`, `to` ou `clientId`, a
+ *       lista começa em hoje. A resposta traz `pagination` e o `period` aplicado.
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -279,9 +282,30 @@ appointmentRouter.patch('/:id/cancel', authMiddleware, (req, res, next) =>
  *         schema:
  *           type: string
  *           format: date-time
+ *       - in: query
+ *         name: search
+ *         description: Nome, e-mail ou telefone do cliente
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: order
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
  *     responses:
  *       200:
- *         description: Lista de agendamentos
+ *         description: Página de agendamentos, com `pagination` e `period`
  */
 appointmentRouter.get('/', authMiddleware, adminMiddleware, (req, res, next) =>
   appointmentController.findAll(req, res, next),
