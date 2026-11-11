@@ -180,7 +180,10 @@ test.describe('Perfil e troca de senha autenticada', () => {
       name: account.name,
       email: USER_A.email,
     });
-    expect(stolenEmail.status).toBe(409);
+    // SEC-10: a resposta não revela que o e-mail já é de outra conta. O pedido fica pendente,
+    // nenhum link é enviado e o e-mail da conta não muda.
+    expect(stolenEmail.status).toBe(200);
+    expect(stolenEmail.body.data?.user.email).toBe(account.email.toLowerCase());
 
     const asAdmin = await updateProfile(api, token, {
       name: account.name,
