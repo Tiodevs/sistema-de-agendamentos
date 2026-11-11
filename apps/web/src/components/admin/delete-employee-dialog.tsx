@@ -54,8 +54,8 @@ export function DeleteEmployeeDialog({
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <div className="flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-                <Archive className="size-5 text-amber-500" />
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tone-warning-bg">
+                <Archive className="size-5 text-tone-warning" />
               </div>
               <div>
                 <DialogTitle>Este profissional tem histórico</DialogTitle>

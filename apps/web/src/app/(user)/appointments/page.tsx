@@ -27,6 +27,7 @@ import { StatusBadge } from '@/components/admin/status-badge';
 import { CalendarDays, CalendarPlus, Loader2, Search, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { ListSkeleton, LoadError } from '@/components/shell/page-states';
 
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleTimeString('pt-BR', {
@@ -61,6 +62,8 @@ export default function MyAppointmentsPage() {
   const router = useRouter();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum agendamento": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
@@ -72,7 +75,9 @@ export default function MyAppointmentsPage() {
       if (res.data?.appointments) {
         setAppointments(res.data.appointments);
       }
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       toast.error('Erro ao carregar agendamentos');
     } finally {
       setLoading(false);
@@ -86,7 +91,7 @@ export default function MyAppointmentsPage() {
   }, []);
 
   useEffect(() => {
-    loadAppointments();
+    void loadAppointments();
   }, [loadAppointments]);
 
   async function handleCancel() {
@@ -101,7 +106,7 @@ export default function MyAppointmentsPage() {
     } finally {
       setCancelling(false);
       setCancelId(null);
-      loadAppointments();
+      void loadAppointments();
     }
   }
 
@@ -124,7 +129,7 @@ export default function MyAppointmentsPage() {
     ? cancellationState(cancellingAppointment, 'CLIENT', now)
     : null;
 
-  if (loading) return null;
+  if (loading) return <ListSkeleton label="Carregando seus horários…" />;
 
   return (
     <StaggerIn selector="[data-motion='enter']" className="space-y-5">
@@ -147,6 +152,7 @@ export default function MyAppointmentsPage() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar por serviço ou profissional..."
+              aria-label="Buscar por serviço ou profissional"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="rounded-full pl-10"
@@ -162,6 +168,7 @@ export default function MyAppointmentsPage() {
                   ? 'bg-[var(--admin-card-muted)] text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
+              aria-pressed={activeTab === 'upcoming'}
             >
               Próximos ({upcoming.length})
             </button>
@@ -174,6 +181,7 @@ export default function MyAppointmentsPage() {
                   ? 'bg-[var(--admin-card-muted)] text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
+              aria-pressed={activeTab === 'past'}
             >
               Histórico ({past.length})
             </button>
@@ -181,7 +189,15 @@ export default function MyAppointmentsPage() {
         </div>
       </section>
 
-      {displayedAppointments.length === 0 ? (
+      {loadError ? (
+        <LoadError
+          title="Não foi possível carregar seus horários"
+          onRetry={() => {
+            setLoading(true);
+            void loadAppointments();
+          }}
+        />
+      ) : displayedAppointments.length === 0 ? (
         <section
           data-motion="enter"
           className="admin-surface flex flex-col items-center justify-center px-6 py-16"

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useId } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useId } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { homePathForUser, useAuth } from '@/hooks/use-auth';
-import { registerUser } from '@/lib/api';
+import { useAuth, useRedirectAuthenticated } from '@/hooks/use-auth';
+import { apiErrorMessage, apiFieldErrors, registerUser } from '@/lib/api';
+import { safeNextPath, withNext } from '@/lib/safe-next';
 import { toast } from 'sonner';
 import {
   PASSWORD_MAX_LENGTH,
@@ -21,19 +22,19 @@ import { PasswordInput } from '@/components/auth/password-input';
 import { PasswordMatchHint, PasswordRequirements } from '@/components/auth/password-requirements';
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const { login, user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const passwordHelpId = useId();
+  // UX-08: quem veio de um serviço da landing volta para o agendamento depois do cadastro.
+  const next = safeNextPath(searchParams.get('next'));
 
-  useEffect(() => {
-    if (authLoading || !isAuthenticated || !user) return;
-    router.replace(homePathForUser(user));
-  }, [authLoading, isAuthenticated, user, router]);
+  // Quem já tem sessão, ou acabou de criar a conta, segue para o `next` ou para a home do papel.
+  useRedirectAuthenticated(next);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -65,23 +66,16 @@ export default function RegisterPage() {
       const response = await registerUser({ name, email, password, phone: phone || undefined });
 
       if (response.data) {
+        // O redirecionamento sai do `useRedirectAuthenticated`, assim que a sessão entra.
         login(response.data.user, response.data.token);
         toast.success('Conta criada. Enviamos um link para confirmar seu e-mail.');
-        router.push('/');
       }
     } catch (err: unknown) {
-      const apiError = err as {
-        message?: string;
-        errors?: Array<{ field: string; message: string }>;
-      };
-      if (apiError.errors) {
-        const errors: Record<string, string> = {};
-        apiError.errors.forEach((fieldError) => {
-          errors[fieldError.field] = fieldError.message;
-        });
-        setFieldErrors(errors);
+      const fields = apiFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
       } else {
-        setError(apiError.message || 'Erro ao criar conta');
+        setError(apiErrorMessage(err, 'Não foi possível criar a conta. Tente de novo.'));
       }
     } finally {
       setIsLoading(false);
@@ -207,7 +201,10 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Já tem uma conta?{' '}
-          <Link href="/login" className="font-medium text-foreground hover:underline">
+          <Link
+            href={withNext('/login', next)}
+            className="font-medium text-foreground hover:underline"
+          >
             Fazer login
           </Link>
         </p>

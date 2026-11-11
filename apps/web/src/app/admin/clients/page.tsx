@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, ContactRound, Plus, Search } from 'lucide-re
 import { toast } from 'sonner';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { ListSkeleton, LoadError } from '@/components/shell/page-states';
 import { UserAvatar } from '@/components/user-avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,8 @@ export default function AdminClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [pagination, setPagination] = useState<ClientsPagination | null>(null);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum cliente": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [visibility, setVisibility] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
@@ -54,7 +57,9 @@ export default function AdminClientsPage() {
       });
       if (res.data?.clients) setClients(res.data.clients);
       if (res.data?.pagination) setPagination(res.data.pagination);
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       toast.error('Erro ao carregar clientes');
     } finally {
       setLoading(false);
@@ -66,7 +71,7 @@ export default function AdminClientsPage() {
     void fetchClients();
   }, [fetchClients]);
 
-  if (loading && !pagination) return null;
+  if (loading && !pagination) return <ListSkeleton label="Carregando clientes…" />;
 
   const total = pagination?.total ?? clients.length;
   const totalPages = pagination?.totalPages ?? 1;
@@ -109,6 +114,7 @@ export default function AdminClientsPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={visibility === value}
               >
                 {label}
               </button>
@@ -118,6 +124,7 @@ export default function AdminClientsPage() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome, e-mail ou telefone..."
+              aria-label="Buscar por nome, e-mail ou telefone"
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               className="rounded-full pl-10"
@@ -125,7 +132,15 @@ export default function AdminClientsPage() {
           </div>
         </div>
 
-        {clients.length === 0 ? (
+        {loadError ? (
+          <LoadError
+            title="Não foi possível carregar os clientes"
+            onRetry={() => {
+              setLoading(true);
+              void fetchClients();
+            }}
+          />
+        ) : clients.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <ContactRound className="mb-4 size-12 text-muted-foreground/40" />
             <h2 className="text-lg font-semibold">Nenhum cliente encontrado</h2>
@@ -168,7 +183,7 @@ export default function AdminClientsPage() {
                           'rounded-full px-2.5 py-1 text-[11px] font-medium',
                           client.active === false
                             ? 'bg-[var(--admin-chip)] text-muted-foreground'
-                            : 'bg-emerald-500/15 text-emerald-400',
+                            : 'bg-tone-success-bg text-tone-success',
                         )}
                       >
                         {client.active === false ? 'Inativo' : 'Ativo'}
@@ -199,10 +214,12 @@ export default function AdminClientsPage() {
                   className="rounded-full"
                   disabled={page <= 1}
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  aria-label="Página anterior"
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
-                <p className="text-sm tabular-nums text-muted-foreground">
+                <p className="text-sm tabular-nums text-muted-foreground" aria-live="polite">
+                  <span className="sr-only">Página </span>
                   {page} / {totalPages}
                 </p>
                 <Button
@@ -211,6 +228,7 @@ export default function AdminClientsPage() {
                   className="rounded-full"
                   disabled={page >= totalPages}
                   onClick={() => setPage((current) => current + 1)}
+                  aria-label="Próxima página"
                 >
                   <ChevronRight className="size-4" />
                 </Button>

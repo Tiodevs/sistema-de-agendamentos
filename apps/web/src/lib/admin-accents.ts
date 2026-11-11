@@ -12,12 +12,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+// ARQ-10/UX-11: `fg` sobre `bg` usa os tokens `--chip-*` (styles/tokens.css), que escurecem no
+// tema claro; com os tons 400 fixos as iniciais e os ícones sumiam sobre o fundo branco.
 export const ADMIN_ACCENTS = [
-  { bg: 'bg-[#34C3DD]/15', fg: 'text-[#34C3DD]', solid: 'bg-[#34C3DD]' },
-  { bg: 'bg-violet-500/15', fg: 'text-violet-400', solid: 'bg-violet-500' },
-  { bg: 'bg-sky-500/15', fg: 'text-sky-400', solid: 'bg-sky-500' },
-  { bg: 'bg-orange-400/15', fg: 'text-orange-400', solid: 'bg-orange-400' },
-  { bg: 'bg-emerald-400/15', fg: 'text-emerald-400', solid: 'bg-emerald-400' },
+  { bg: 'bg-chip-cyan/15', fg: 'text-chip-cyan', solid: 'bg-brand' },
+  { bg: 'bg-chip-violet/15', fg: 'text-chip-violet', solid: 'bg-violet-500' },
+  { bg: 'bg-chip-sky/15', fg: 'text-chip-sky', solid: 'bg-sky-500' },
+  { bg: 'bg-chip-orange/15', fg: 'text-chip-orange', solid: 'bg-orange-400' },
+  { bg: 'bg-chip-emerald/15', fg: 'text-chip-emerald', solid: 'bg-emerald-400' },
 ] as const;
 
 function hashString(value: string) {

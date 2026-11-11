@@ -7,12 +7,15 @@ import { toast } from 'sonner';
 import { KpiCard } from '@/components/admin/dashboard-widgets';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { FormSkeleton, LoadError } from '@/components/shell/page-states';
 import { UserAvatar } from '@/components/user-avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { accentForId } from '@/lib/admin-accents';
 import { STATUS_CONFIG, STATUS_OPTIONS } from '@/lib/appointment-status';
 import {
+  ApiError,
+  apiErrorMessage,
   getClient,
   type Appointment,
   type AppointmentStatus,
@@ -54,6 +57,8 @@ export default function AdminClientDetailPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // UX-10: falha da API não é "cliente não encontrado": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
@@ -64,12 +69,13 @@ export default function AdminClientDetailPage() {
       if (res.data?.client) setClient(res.data.client);
       if (res.data?.stats) setStats(res.data.stats);
       if (res.data?.appointments) setAppointments(res.data.appointments);
+      setLoadError(false);
     } catch (err: unknown) {
-      const error = err as { statusCode?: number; message?: string };
-      if (error.statusCode === 404) {
+      if (err instanceof ApiError && err.statusCode === 404) {
         setNotFound(true);
       } else {
-        toast.error(error.message || 'Erro ao carregar cliente');
+        setLoadError(true);
+        toast.error(apiErrorMessage(err, 'Não foi possível carregar o cliente.'));
       }
     } finally {
       setLoading(false);
@@ -93,7 +99,19 @@ export default function AdminClientDetailPage() {
     });
   }, [appointments, search, statusFilter]);
 
-  if (loading) return null;
+  if (loading) return <FormSkeleton label="Carregando a ficha do cliente…" />;
+
+  if (loadError && !notFound) {
+    return (
+      <LoadError
+        title="Não foi possível carregar a ficha do cliente"
+        onRetry={() => {
+          setLoading(true);
+          void fetchClient();
+        }}
+      />
+    );
+  }
 
   if (notFound || !client || !stats) {
     return (
@@ -124,6 +142,7 @@ export default function AdminClientDetailPage() {
           size="icon"
           className="rounded-2xl"
           onClick={() => router.push('/admin/clients')}
+          aria-label="Voltar para clientes"
         >
           <ArrowLeft className="size-5" />
         </Button>
@@ -153,7 +172,7 @@ export default function AdminClientDetailPage() {
                   'rounded-full px-2.5 py-1 text-[11px] font-medium',
                   client.active === false
                     ? 'bg-[var(--admin-chip)] text-muted-foreground'
-                    : 'bg-emerald-500/15 text-emerald-400',
+                    : 'bg-tone-success-bg text-tone-success',
                 )}
               >
                 {client.active === false ? 'Inativo' : 'Ativo'}
@@ -256,6 +275,7 @@ export default function AdminClientDetailPage() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar por serviço, profissional ou observação..."
+              aria-label="Buscar por serviço, profissional ou observação"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="rounded-full pl-10"
@@ -271,6 +291,7 @@ export default function AdminClientDetailPage() {
                   ? 'bg-[var(--admin-card-muted)] text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
+              aria-pressed={statusFilter === 'ALL'}
             >
               Todos
             </button>
@@ -285,6 +306,7 @@ export default function AdminClientDetailPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={statusFilter === status}
               >
                 {STATUS_CONFIG[status].label}
               </button>

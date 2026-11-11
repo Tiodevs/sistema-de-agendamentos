@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { FormSkeleton } from '@/components/shell/page-states';
 
 const PHONE_PATTERN = /^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/;
 
@@ -58,7 +59,8 @@ export function ProfileForm() {
     setPhone(user.phone ?? '');
   }, [user]);
 
-  if (!user) return null;
+  // UX-10: enquanto a conta carrega, um esqueleto no lugar da tela vazia.
+  if (!user) return <FormSkeleton label="Carregando o perfil…" />;
 
   function validate() {
     const next: Record<string, string> = {};
@@ -263,6 +265,9 @@ export function ProfileForm() {
               type="file"
               accept="image/jpeg,image/png,image/webp,image/gif"
               className="sr-only"
+              // Quem abre o seletor é o botão da câmera; este campo fica fora do Tab e do leitor.
+              tabIndex={-1}
+              aria-hidden="true"
               onChange={handleAvatarChange}
             />
           </div>
@@ -336,8 +341,13 @@ export function ProfileForm() {
             onChange={(event) => setName(event.target.value)}
             disabled={busy}
             autoComplete="name"
+            aria-invalid={Boolean(errors.name)}
           />
-          {errors.name ? <p className="text-sm text-destructive">{errors.name}</p> : null}
+          {errors.name ? (
+            <p role="alert" className="text-sm text-destructive">
+              {errors.name}
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-2">
@@ -349,8 +359,13 @@ export function ProfileForm() {
             onChange={(event) => setEmail(event.target.value)}
             disabled={busy}
             autoComplete="email"
+            aria-invalid={Boolean(errors.email)}
           />
-          {errors.email ? <p className="text-sm text-destructive">{errors.email}</p> : null}
+          {errors.email ? (
+            <p role="alert" className="text-sm text-destructive">
+              {errors.email}
+            </p>
+          ) : null}
           {user.pendingEmail ? (
             <p className="text-sm text-muted-foreground">
               Enviamos um link para {user.pendingEmail}. O e-mail da conta só muda depois da
@@ -371,8 +386,13 @@ export function ProfileForm() {
             disabled={busy}
             autoComplete="tel"
             placeholder="(11) 99999-9999"
+            aria-invalid={Boolean(errors.phone)}
           />
-          {errors.phone ? <p className="text-sm text-destructive">{errors.phone}</p> : null}
+          {errors.phone ? (
+            <p role="alert" className="text-sm text-destructive">
+              {errors.phone}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex justify-end pt-2">
@@ -415,7 +435,9 @@ export function ProfileForm() {
             aria-invalid={Boolean(passwordErrors.currentPassword)}
           />
           {passwordErrors.currentPassword ? (
-            <p className="text-sm text-destructive">{passwordErrors.currentPassword}</p>
+            <p role="alert" className="text-sm text-destructive">
+              {passwordErrors.currentPassword}
+            </p>
           ) : null}
         </div>
 
@@ -435,7 +457,9 @@ export function ProfileForm() {
           />
           <PasswordRequirements id="new-password-requirements" password={newPassword} />
           {passwordErrors.newPassword ? (
-            <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
+            <p role="alert" className="text-sm text-destructive">
+              {passwordErrors.newPassword}
+            </p>
           ) : null}
         </div>
 
@@ -454,7 +478,9 @@ export function ProfileForm() {
           />
           <PasswordMatchHint password={newPassword} confirmPassword={confirmPassword} />
           {passwordErrors.confirmPassword ? (
-            <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
+            <p role="alert" className="text-sm text-destructive">
+              {passwordErrors.confirmPassword}
+            </p>
           ) : null}
         </div>
 

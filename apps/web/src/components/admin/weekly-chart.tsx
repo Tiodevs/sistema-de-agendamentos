@@ -128,7 +128,7 @@ export function WeeklyChart({ weeks }: { weeks: WeeklyBar[] }) {
                         'mb-1 text-[11px] font-semibold tabular-nums leading-none',
                         totalMinutes === 0
                           ? 'text-muted-foreground/50'
-                          : 'text-foreground group-hover:text-[var(--admin-accent)]',
+                          : 'text-foreground group-hover:text-brand-ink',
                       )}
                     >
                       {value}

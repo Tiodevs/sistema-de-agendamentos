@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   LogOut,
@@ -32,6 +32,8 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { UserAvatar } from '@/components/user-avatar';
+import { ShellSkeleton } from '@/components/shell/shell-skeleton';
+import { loginPathWithNext } from '@/lib/route-access';
 import { AdminThemeToggle } from '@/components/admin/theme-toggle';
 import { useAdminTheme } from '@/components/admin/admin-theme';
 
@@ -50,6 +52,8 @@ export type AppShellUser = {
 export type AppShellCta = {
   href: string;
   label: string;
+  /** Nome completo para o leitor de tela: no celular o botão mostra só o ícone (UX-10). */
+  ariaLabel?: string;
 };
 
 function isActivePath(pathname: string, item: AppShellNavItem) {
@@ -69,7 +73,10 @@ function NavLinks({
   onNavigate?: () => void;
 }) {
   return (
-    <nav className={cn('flex flex-col', withLabel ? 'gap-1 px-3' : 'items-center gap-2')}>
+    <nav
+      aria-label="Navegação principal"
+      className={cn('flex flex-col', withLabel ? 'gap-1 px-3' : 'items-center gap-2')}
+    >
       {items.map((item) => {
         const active = isActivePath(pathname, item);
         const link = (
@@ -184,6 +191,7 @@ export function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const leavingRef = useRef(false);
   const breadcrumb = useMemo(() => getBreadcrumb(pathname), [getBreadcrumb, pathname]);
   const { theme, toggleTheme } = useAdminTheme();
 
@@ -194,10 +202,17 @@ export function AppShell({
     };
   }, []);
 
+  // ARQ-11: o middleware já barra quem não tem o cookie de sessão. Este efeito cobre o que só o
+  // cliente sabe: sessão que acabou com a página aberta (401, logout em outra aba) e papel errado.
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated) {
-      router.replace('/login');
+      // Quem clicou em "Sair" vai para o login limpo; quem perdeu a sessão volta para onde estava.
+      router.replace(
+        leavingRef.current
+          ? '/login'
+          : loginPathWithNext(`${window.location.pathname}${window.location.search}`),
+      );
       return;
     }
     if (user && !isAuthorized(user)) {
@@ -212,6 +227,7 @@ export function AppShell({
   }, [pathname]);
 
   function handleLogout() {
+    leavingRef.current = true;
     void logout().then(() => {
       router.replace('/login');
     });
@@ -226,8 +242,9 @@ export function AppShell({
     }
   }
 
+  // ARQ-11: casca do painel enquanto a sessão carrega ou o redirecionamento acontece.
   if (isLoading || !isAuthenticated || !user || !isAuthorized(user)) {
-    return null;
+    return <ShellSkeleton />;
   }
 
   return (
@@ -375,7 +392,11 @@ export function AppShell({
                 <TooltipContent>Copiar link</TooltipContent>
               </Tooltip>
               {cta ? (
-                <Button onClick={() => router.push(cta.href)} className="rounded-full px-4">
+                <Button
+                  onClick={() => router.push(cta.href)}
+                  className="rounded-full px-4"
+                  aria-label={cta.ariaLabel ?? cta.label}
+                >
                   <CalendarPlus className="size-4" />
                   <span className="hidden sm:inline">{cta.label}</span>
                 </Button>

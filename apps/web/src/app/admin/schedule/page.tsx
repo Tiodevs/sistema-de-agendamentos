@@ -48,13 +48,15 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
-import { ScheduleHoursEditor } from '@/components/admin/schedule-hours-editor';
+import { ScheduleHoursEditor, type HourFieldValue } from '@/components/admin/schedule-hours-editor';
+import { firstBreaksError, toHourPayload } from '@/lib/schedule-breaks';
 import { ProfessionalSchedulePanel } from '@/components/admin/professional-schedule-panel';
 import {
   AffectedAppointmentsDialog,
   useAffectedAppointments,
 } from '@/components/admin/affected-appointments-dialog';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { FormSkeleton, LoadError } from '@/components/shell/page-states';
 
 /** "24/12" de um dia `YYYY-MM-DD`. */
 function formatDayMonthKey(dateKey: string) {
@@ -75,6 +77,8 @@ function formatDateBR(dateStr: string): string {
 export default function SchedulePage() {
   const [activeTab, setActiveTab] = useState<'hours' | 'special' | 'professionals'>('hours');
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum dia especial" nem expediente vazio: tem tela própria.
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Business Hours
@@ -103,19 +107,14 @@ export default function SchedulePage() {
       const [hoursRes, daysRes] = await Promise.all([getBusinessHours(), getSpecialDays()]);
       if (hoursRes.data?.hours) {
         setHours(hoursRes.data.hours);
-        setEditHours(
-          hoursRes.data.hours.map((h) => ({
-            dayOfWeek: h.dayOfWeek,
-            openTime: h.openTime,
-            closeTime: h.closeTime,
-            isClosed: h.isClosed,
-          })),
-        );
+        setEditHours(hoursRes.data.hours.map((hour) => toHourPayload(hour)));
       }
       if (daysRes.data?.days) {
         setSpecialDays(daysRes.data.days);
       }
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       toast.error('Erro ao carregar dados');
     } finally {
       setLoading(false);
@@ -123,10 +122,10 @@ export default function SchedulePage() {
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  function updateHour(index: number, field: keyof BusinessHourPayload, value: string | boolean) {
+  function updateHour(index: number, field: keyof BusinessHourPayload, value: HourFieldValue) {
     setEditHours((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };
@@ -135,12 +134,21 @@ export default function SchedulePage() {
   }
 
   async function handleSaveHours() {
+    // UX-12: pausa fora do expediente ou sobreposta é apontada antes de ir para a API.
+    const invalid = firstBreaksError(editHours);
+    if (invalid) {
+      toast.error(invalid.message);
+      return;
+    }
     setSaving(true);
-    const payload = editHours;
+    const payload = editHours.map((hour) => toHourPayload(hour));
     try {
       await affected.run('O novo horário de funcionamento', async (decision) => {
         const res = await updateAllBusinessHours(payload, decision);
-        if (res.data?.hours) setHours(res.data.hours);
+        if (res.data?.hours) {
+          setHours(res.data.hours);
+          setEditHours(res.data.hours.map((hour) => toHourPayload(hour)));
+        }
         toast.success(impactMessage('Horários salvos.', res.data?.impact));
       });
     } catch (err: unknown) {
@@ -221,17 +229,21 @@ export default function SchedulePage() {
   }
 
   const hasChanges =
-    JSON.stringify(editHours) !==
-    JSON.stringify(
-      hours.map((h) => ({
-        dayOfWeek: h.dayOfWeek,
-        openTime: h.openTime,
-        closeTime: h.closeTime,
-        isClosed: h.isClosed,
-      })),
-    );
+    JSON.stringify(editHours) !== JSON.stringify(hours.map((hour) => toHourPayload(hour)));
 
-  if (loading) return null;
+  if (loading) return <FormSkeleton label="Carregando o expediente…" />;
+
+  if (loadError) {
+    return (
+      <LoadError
+        title="Não foi possível carregar os horários"
+        onRetry={() => {
+          setLoading(true);
+          void loadData();
+        }}
+      />
+    );
+  }
 
   // UX-05: o "hoje" é o de São Paulo; pela data UTC, depois das 21h o feriado de hoje virava passado.
   const { upcoming: upcomingDays, past: pastDays } = splitSpecialDays(specialDays, todayDateKey());
@@ -247,6 +259,8 @@ export default function SchedulePage() {
 
       <div data-motion="enter" className="admin-surface flex min-w-0 gap-1 p-1.5">
         <button
+          type="button"
+          aria-pressed={activeTab === 'hours'}
           onClick={() => setActiveTab('hours')}
           className={cn(
             'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
@@ -259,6 +273,8 @@ export default function SchedulePage() {
           <span className="truncate">Funcionamento</span>
         </button>
         <button
+          type="button"
+          aria-pressed={activeTab === 'special'}
           onClick={() => setActiveTab('special')}
           className={cn(
             'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
@@ -276,6 +292,8 @@ export default function SchedulePage() {
           )}
         </button>
         <button
+          type="button"
+          aria-pressed={activeTab === 'professionals'}
           onClick={() => setActiveTab('professionals')}
           className={cn(
             'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-2.5 text-xs font-medium transition-colors sm:gap-2 sm:px-4 sm:text-sm',
@@ -313,8 +331,8 @@ export default function SchedulePage() {
                 className={cn(
                   'inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium',
                   hasChanges
-                    ? 'bg-amber-500/10 text-amber-500'
-                    : 'bg-emerald-500/10 text-emerald-500',
+                    ? 'bg-tone-warning-bg text-tone-warning'
+                    : 'bg-tone-success-bg text-tone-success',
                 )}
               >
                 {hasChanges ? (
@@ -370,16 +388,16 @@ export default function SchedulePage() {
                     className={cn(
                       'flex min-w-0 flex-col gap-3 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-4',
                       day.isClosed
-                        ? 'border-red-500/20 bg-red-500/5'
-                        : 'border-yellow-500/20 bg-yellow-500/5',
+                        ? 'border-tone-danger/20 bg-tone-danger/5'
+                        : 'border-tone-warning/20 bg-tone-warning/5',
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--admin-card-muted)]">
                         {day.isClosed ? (
-                          <CalendarOff className="size-5 text-red-400" />
+                          <CalendarOff className="size-5 text-tone-danger" />
                         ) : (
-                          <CalendarDays className="size-5 text-yellow-400" />
+                          <CalendarDays className="size-5 text-tone-warning" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -396,19 +414,26 @@ export default function SchedulePage() {
                     </div>
                     <div className="flex items-center justify-between gap-2 sm:justify-end">
                       {day.isClosed ? (
-                        <Badge variant="outline" className="text-red-400 border-red-500/30">
+                        <Badge
+                          variant="outline"
+                          className="border-tone-danger-border text-tone-danger"
+                        >
                           Fechado
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                        <Badge
+                          variant="outline"
+                          className="border-tone-warning-border text-tone-warning"
+                        >
                           {day.openTime} – {day.closeTime}
                         </Badge>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 text-red-400 hover:text-red-400 hover:bg-red-500/10"
+                        className="size-8 text-tone-danger hover:bg-tone-danger-bg hover:text-tone-danger"
                         onClick={() => setDeleteId(day.id)}
+                        aria-label={`Excluir o dia especial ${day.title}`}
                       >
                         <Trash2 className="size-4" />
                       </Button>
@@ -444,8 +469,9 @@ export default function SchedulePage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+                      className="size-8 text-muted-foreground hover:bg-tone-danger-bg hover:text-tone-danger"
                       onClick={() => setDeleteId(day.id)}
+                      aria-label={`Excluir o dia especial ${day.title}`}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -520,8 +546,10 @@ export default function SchedulePage() {
 
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 sm:px-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium">Estabelecimento fechado</p>
-                <p className="text-xs text-muted-foreground">
+                <p id="special-closed-label" className="text-sm font-medium">
+                  Estabelecimento fechado
+                </p>
+                <p id="special-closed-hint" className="text-xs text-muted-foreground">
                   {newDay.isClosed
                     ? 'Nenhum agendamento será aceito neste dia'
                     : 'O estabelecimento abre com horário especial'}
@@ -529,6 +557,8 @@ export default function SchedulePage() {
               </div>
               <Switch
                 className="shrink-0"
+                aria-labelledby="special-closed-label"
+                aria-describedby="special-closed-hint"
                 checked={newDay.isClosed}
                 onCheckedChange={(checked) => setNewDay({ ...newDay, isClosed: checked })}
               />
@@ -537,16 +567,18 @@ export default function SchedulePage() {
             {!newDay.isClosed && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Abertura</Label>
+                  <Label htmlFor="special-open">Abertura</Label>
                   <Input
+                    id="special-open"
                     type="time"
                     value={newDay.openTime}
                     onChange={(e) => setNewDay({ ...newDay, openTime: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Fechamento</Label>
+                  <Label htmlFor="special-close">Fechamento</Label>
                   <Input
+                    id="special-close"
                     type="time"
                     value={newDay.closeTime}
                     onChange={(e) => setNewDay({ ...newDay, closeTime: e.target.value })}
@@ -573,8 +605,8 @@ export default function SchedulePage() {
       <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-red-500/10">
-              <AlertTriangle className="size-6 text-red-400" />
+            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-tone-danger-bg">
+              <AlertTriangle className="size-6 text-tone-danger" />
             </div>
             <DialogTitle className="text-center">Excluir dia especial?</DialogTitle>
             <DialogDescription className="text-center">

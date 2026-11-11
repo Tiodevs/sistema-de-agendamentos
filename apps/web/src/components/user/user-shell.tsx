@@ -44,7 +44,7 @@ export function UserShell({ children }: { children: ReactNode }) {
       unauthorizedHref={clientUnauthorizedHref}
       notificationsHref="/appointments"
       profileHref="/profile"
-      cta={{ href: '/book', label: 'Novo' }}
+      cta={{ href: '/book', label: 'Novo', ariaLabel: 'Novo agendamento' }}
     >
       {children}
     </AppShell>

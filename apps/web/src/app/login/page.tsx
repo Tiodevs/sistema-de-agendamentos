@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { homePathForUser, useAuth } from '@/hooks/use-auth';
-import { loginUser } from '@/lib/api';
+import { useAuth, useRedirectAuthenticated } from '@/hooks/use-auth';
+import { apiErrorMessage, apiFieldErrors, loginUser } from '@/lib/api';
+import { safeNextPath, withNext } from '@/lib/safe-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,18 +15,17 @@ import { AuthScreen } from '@/components/motion/auth-screen';
 import { PasswordInput } from '@/components/auth/password-input';
 
 export default function LoginPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const resetDone = searchParams.get('reset') === '1';
+  // UX-08: `?next=` só vale se for caminho deste site; quem entra segue para ele.
+  const next = safeNextPath(searchParams.get('next'));
 
-  useEffect(() => {
-    if (authLoading || !isAuthenticated || !user) return;
-    router.replace(homePathForUser(user));
-  }, [authLoading, isAuthenticated, user, router]);
+  // Quem já tem sessão, ou acabou de entrar, segue para o `next` ou para a home do papel.
+  useRedirectAuthenticated(next);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,29 +41,15 @@ export default function LoginPage() {
       const response = await loginUser({ email, password });
 
       if (response.data) {
+        // O redirecionamento sai do `useRedirectAuthenticated`, assim que a sessão entra.
         login(response.data.user, response.data.token);
-        const role = response.data.user.role;
-        if (role === 'ADMIN') {
-          router.push('/admin');
-        } else if (role === 'EMPLOYEE' || response.data.user.employeeId) {
-          router.push('/professional');
-        } else {
-          router.push('/');
-        }
       }
     } catch (err: unknown) {
-      const apiError = err as {
-        message?: string;
-        errors?: Array<{ field: string; message: string }>;
-      };
-      if (apiError.errors) {
-        const errors: Record<string, string> = {};
-        apiError.errors.forEach((fieldError) => {
-          errors[fieldError.field] = fieldError.message;
-        });
-        setFieldErrors(errors);
+      const fields = apiFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
       } else {
-        setError(apiError.message || 'Erro ao fazer login');
+        setError(apiErrorMessage(err, 'Não foi possível entrar. Tente de novo.'));
       }
     } finally {
       setIsLoading(false);
@@ -146,7 +132,10 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Não tem uma conta?{' '}
-          <Link href="/register" className="font-medium text-foreground hover:underline">
+          <Link
+            href={withNext('/register', next)}
+            className="font-medium text-foreground hover:underline"
+          >
             Criar conta
           </Link>
         </p>

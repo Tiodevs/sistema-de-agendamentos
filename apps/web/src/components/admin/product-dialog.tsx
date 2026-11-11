@@ -113,8 +113,13 @@ export function ProductDialog({ open, onOpenChange, product, onSubmit }: Product
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={loading}
+              aria-invalid={Boolean(errors.name)}
             />
-            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+            {errors.name && (
+              <p role="alert" className="text-xs text-destructive">
+                {errors.name}
+              </p>
+            )}
           </div>
 
           {/* Description */}
@@ -143,8 +148,13 @@ export function ProductDialog({ open, onOpenChange, product, onSubmit }: Product
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 disabled={loading}
+                aria-invalid={Boolean(errors.price)}
               />
-              {errors.price && <p className="text-xs text-destructive">{errors.price}</p>}
+              {errors.price && (
+                <p role="alert" className="text-xs text-destructive">
+                  {errors.price}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -158,8 +168,13 @@ export function ProductDialog({ open, onOpenChange, product, onSubmit }: Product
                 value={duration}
                 onChange={(e) => setDuration(e.target.value)}
                 disabled={loading}
+                aria-invalid={Boolean(errors.duration)}
               />
-              {errors.duration && <p className="text-xs text-destructive">{errors.duration}</p>}
+              {errors.duration && (
+                <p role="alert" className="text-xs text-destructive">
+                  {errors.duration}
+                </p>
+              )}
             </div>
           </div>
 

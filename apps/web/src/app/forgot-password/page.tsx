@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { requestPasswordReset } from '@/lib/api';
+import { apiErrorMessage, apiFieldErrors, requestPasswordReset } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,18 +29,11 @@ export default function ForgotPasswordPage() {
       await requestPasswordReset(email);
       setSent(true);
     } catch (err: unknown) {
-      const apiError = err as {
-        message?: string;
-        errors?: Array<{ field: string; message: string }>;
-      };
-      if (apiError.errors) {
-        const errors: Record<string, string> = {};
-        apiError.errors.forEach((fieldError) => {
-          errors[fieldError.field] = fieldError.message;
-        });
-        setFieldErrors(errors);
+      const fields = apiFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
       } else {
-        setError(apiError.message || 'Não foi possível enviar o e-mail');
+        setError(apiErrorMessage(err, 'Não foi possível enviar o e-mail. Tente de novo.'));
       }
     } finally {
       setIsLoading(false);

@@ -65,8 +65,8 @@ export function AffectedAppointmentsDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-amber-500/10">
-            <CalendarClock className="size-6 text-amber-400" aria-hidden />
+          <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-tone-warning-bg">
+            <CalendarClock className="size-6 text-tone-warning" aria-hidden />
           </div>
           <DialogTitle className="text-center">{affectedTitle(count)}</DialogTitle>
           <DialogDescription className="text-center">

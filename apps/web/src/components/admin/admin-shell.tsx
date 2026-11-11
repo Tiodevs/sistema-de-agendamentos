@@ -56,7 +56,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       unauthorizedHref="/"
       notificationsHref="/admin/appointments"
       profileHref="/admin/profile"
-      cta={{ href: '/admin/appointments/new', label: 'Novo' }}
+      cta={{ href: '/admin/appointments/new', label: 'Novo', ariaLabel: 'Novo agendamento' }}
     >
       {children}
     </AppShell>

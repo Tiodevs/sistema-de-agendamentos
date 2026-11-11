@@ -29,10 +29,13 @@ import { DeleteProductDialog } from '@/components/admin/delete-product-dialog';
 import { Plus, Search, MoreHorizontal, Pencil, Trash2, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { CardGridSkeleton, LoadError } from '@/components/shell/page-states';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum produto": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
   const [visibility, setVisibility] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -46,7 +49,9 @@ export default function ProductsPage() {
       if (response.data?.products) {
         setProducts(response.data.products);
       }
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       toast.error('Erro ao carregar produtos');
     } finally {
       setLoading(false);
@@ -54,7 +59,7 @@ export default function ProductsPage() {
   }, []);
 
   useEffect(() => {
-    fetchProducts();
+    void fetchProducts();
   }, [fetchProducts]);
 
   const filteredProducts = products.filter((product) => {
@@ -119,7 +124,7 @@ export default function ProductsPage() {
   const deletingCurrent =
     products.find((product) => product.id === deletingProduct?.id) ?? deletingProduct;
 
-  if (loading) return null;
+  if (loading) return <CardGridSkeleton label="Carregando os serviços…" />;
 
   return (
     <StaggerIn selector="[data-motion='enter']" className="space-y-5">
@@ -162,6 +167,7 @@ export default function ProductsPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={visibility === value}
               >
                 {label}
               </button>
@@ -171,6 +177,7 @@ export default function ProductsPage() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar produtos..."
+              aria-label="Buscar produtos"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="rounded-full pl-10"
@@ -178,7 +185,15 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {filteredProducts.length === 0 ? (
+        {loadError ? (
+          <LoadError
+            title="Não foi possível carregar os serviços"
+            onRetry={() => {
+              setLoading(true);
+              void fetchProducts();
+            }}
+          />
+        ) : filteredProducts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <Package className="mb-4 size-12 text-muted-foreground/40" />
             <h2 className="text-lg font-semibold">Nenhum produto encontrado</h2>
@@ -208,7 +223,12 @@ export default function ProductsPage() {
                     </span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 rounded-2xl">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 rounded-2xl"
+                          aria-label={`Ações de ${product.name}`}
+                        >
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>

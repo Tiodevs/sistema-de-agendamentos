@@ -64,11 +64,13 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StaggerIn } from '@/components/motion/stagger-in';
+import { CardGridSkeleton, LoadError } from '@/components/shell/page-states';
 
+// UX-11: tons por tema (styles/tokens.css); o texto passa de 4,5:1 sobre o próprio fundo suave.
 const ACCESS_STYLE: Record<AccessTone, string> = {
-  ok: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  pending: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-  warning: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  ok: 'bg-tone-success-bg text-tone-success',
+  pending: 'bg-tone-info-bg text-tone-info',
+  warning: 'bg-tone-warning-bg text-tone-warning',
   muted: 'bg-[var(--admin-chip)] text-muted-foreground',
 };
 
@@ -83,6 +85,8 @@ export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-10: falha da API não é "nenhum funcionário": tem tela própria, com nova tentativa.
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
   const [visibility, setVisibility] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -101,7 +105,9 @@ export default function EmployeesPage() {
       const [empRes, prodRes] = await Promise.all([getEmployees(true), getProducts(false)]);
       if (empRes.data?.employees) setEmployees(empRes.data.employees);
       if (prodRes.data?.products) setProducts(prodRes.data.products);
+      setLoadError(false);
     } catch {
+      setLoadError(true);
       toast.error('Erro ao carregar dados');
     } finally {
       setLoading(false);
@@ -109,7 +115,7 @@ export default function EmployeesPage() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const filteredEmployees = employees.filter((employee) => {
@@ -233,7 +239,7 @@ export default function EmployeesPage() {
   const deletingCurrent =
     employees.find((employee) => employee.id === deletingEmployee?.id) ?? deletingEmployee;
 
-  if (loading) return null;
+  if (loading) return <CardGridSkeleton label="Carregando a equipe…" />;
 
   const revokingAccess = revokingEmployee ? describeAccess(revokingEmployee.access) : null;
   const revokingLinked = revokingEmployee?.access?.status === 'linked';
@@ -279,6 +285,7 @@ export default function EmployeesPage() {
                     ? 'bg-[var(--admin-card-muted)] text-foreground'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
+                aria-pressed={visibility === value}
               >
                 {label}
               </button>
@@ -288,6 +295,7 @@ export default function EmployeesPage() {
             <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome ou e-mail..."
+              aria-label="Buscar por nome ou e-mail"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="rounded-full pl-10"
@@ -295,7 +303,15 @@ export default function EmployeesPage() {
           </div>
         </div>
 
-        {filteredEmployees.length === 0 ? (
+        {loadError ? (
+          <LoadError
+            title="Não foi possível carregar a equipe"
+            onRetry={() => {
+              setLoading(true);
+              void fetchData();
+            }}
+          />
+        ) : filteredEmployees.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <Users className="mb-4 size-12 text-muted-foreground/40" />
             <h2 className="text-lg font-semibold">Nenhum funcionário encontrado</h2>
@@ -458,8 +474,8 @@ export default function EmployeesPage() {
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-amber-500/10">
-              <KeyRound className="size-6 text-amber-400" aria-hidden />
+            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-full bg-tone-warning-bg">
+              <KeyRound className="size-6 text-tone-warning" aria-hidden />
             </div>
             <DialogTitle className="text-center">
               {revokingLinked ? 'Remover o acesso ao painel?' : 'Cancelar o convite?'}

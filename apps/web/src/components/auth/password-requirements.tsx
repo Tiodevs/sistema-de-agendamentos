@@ -45,9 +45,9 @@ export function PasswordRequirements({ password, id, className }: PasswordRequir
           className={cn(
             'text-xs font-medium tabular-nums transition-colors duration-300',
             !hasValue && 'text-muted-foreground',
-            hasValue && metCount <= 1 && 'text-amber-500',
-            metCount === 2 && 'text-[var(--admin-accent)]',
-            valid && 'text-[var(--admin-accent)]',
+            hasValue && metCount <= 1 && 'text-tone-warning',
+            metCount === 2 && 'text-brand-ink',
+            valid && 'text-brand-ink',
           )}
         >
           {label}
