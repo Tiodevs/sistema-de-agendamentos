@@ -21,6 +21,16 @@ function prune(now: number) {
   }
 }
 
+/**
+ * Multiplicador dos limites por IP (`rateLimitByIp`), de `RATE_LIMIT_IP_FACTOR`. Padrão 1. Só a CI
+ * o aumenta: a suíte E2E inteira faz mais de 80 logins do mesmo IP em 15 minutos. Valor ausente,
+ * inválido ou menor que 1 vale 1, então nenhum erro de configuração afrouxa a produção sem querer.
+ */
+export function ipLimitFactor(env: NodeJS.ProcessEnv = process.env) {
+  const value = Number(env.RATE_LIMIT_IP_FACTOR);
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
+}
+
 export function consumeRateLimit(key: string, limit: number, windowMs: number, now = Date.now()) {
   prune(now);
   const windowStart = now - windowMs;

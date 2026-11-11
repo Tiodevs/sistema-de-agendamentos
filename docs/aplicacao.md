@@ -84,7 +84,8 @@ Fechar um dia, criar horário especial, mudar o expediente (do estúdio ou do pr
 
 ### Operação e qualidade
 
-- Health check `GET /api/health`.
+- Health check `GET /api/health` (processo no ar, com o commit da versão em `build`) e `GET /api/health/ready` (faz um `SELECT 1` no banco).
+- CI e deploy pelo GitHub Actions, com aprovação para produção (`.github/workflows/README.md`).
 - OpenAPI/Swagger gerado das JSDoc nas rotas.
 - Validação de payload com Zod.
 - Helmet + CORS restrito à origem do front + Morgan na API.
@@ -325,8 +326,8 @@ Não há gateways de pagamento, WhatsApp, storage ou analytics de produto no có
 | **Railway**              | API + Postgres + volume 5 GB, região `us-east4-eqdc4a`, health `/api/health` |
 | **Vercel**               | Next, root `apps/web`, Node 24.x, `NEXT_PUBLIC_API_URL`                      |
 | **Resend**               | e-mail transacional (boas-vindas, agendamento, cancelamento)                 |
-| **GitHub**               | `main` publica o web (Vercel) e a API (Railway, quando `apps/api/**` muda)   |
-| **Railway CLI**          | `railway connect` (túnel); `railway up` só para deploy manual de emergência  |
+| **GitHub Actions**       | CI em toda PR; `deploy.yml` publica development e, com aprovação, production |
+| **Railway CLI**          | `railway connect` (túnel); `railway up` é o deploy da API no `deploy.yml`    |
 | **Prisma Migrate**       | schema no deploy                                                             |
 | **OpenAPI/Swagger**      | documentação viva das rotas                                                  |
 
@@ -368,7 +369,9 @@ Seed (`apps/api/prisma/seed.ts`):
 
 Migrations: `cd apps/api && npx prisma migrate deploy`.
 
-Deploy: merge na `main`. A Vercel publica o web e o Railway publica a API (o serviço `api` segue a `main`, com watch em `apps/api/**`). Ordem segura para mudanças que dependem da API nova: subir a API primeiro e só depois levar o web para a `main`.
+Deploy: merge na `main`. Depois da CI verde, o `.github/workflows/deploy.yml` publica a API (`railway up`) e o web (Vercel CLI) em development, roda a fumaça e, com a aprovação do Environment `production`, faz o mesmo em produção. A API sai e responde com o commit novo antes do web, então mudanças em que o web depende de rota nova não precisam mais de ordem manual. Como ligar e o que configurar: `.github/workflows/README.md`; rollback: `docs/rollback.md`.
+
+Enquanto a variável `DEPLOY_ENABLED` não estiver ligada, vale o caminho anterior: o serviço `api` do Railway segue a `main` (watch em `apps/api/**`) e o web sai por deploy manual na Vercel; nesse caminho, suba a API primeiro e só depois o web.
 
 ---
 

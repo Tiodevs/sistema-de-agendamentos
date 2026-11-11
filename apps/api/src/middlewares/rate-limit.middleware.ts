@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
-import { consumeRateLimit } from '../lib/rate-limit';
+import { consumeRateLimit, ipLimitFactor } from '../lib/rate-limit';
 import { clientIp } from '../lib/request-ip';
 import { AuthenticatedRequest } from './auth.middleware';
 
 export function rateLimitByIp(prefix: string, limit: number, windowMs: number) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!consumeRateLimit(`${prefix}:${clientIp(req)}`, limit, windowMs)) {
+    const scaled = limit * ipLimitFactor();
+    if (!consumeRateLimit(`${prefix}:${clientIp(req)}`, scaled, windowMs)) {
       tooMany(res);
       return;
     }
