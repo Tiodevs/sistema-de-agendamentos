@@ -8,6 +8,7 @@ import { scheduleRouter } from './schedule.routes';
 import { dashboardRouter } from './dashboard.routes';
 import { professionalRouter } from './professional.routes';
 import { usersRouter } from './users.routes';
+import { adminRouter } from './admin.routes';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/appointments', appointmentRouter);
 router.use('/schedule', scheduleRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/professional', professionalRouter);
+router.use('/admin', adminRouter);
 
 export { router };

@@ -20,6 +20,11 @@ import { resolveHoursForDate, type HourLike, type SpecialLike } from '../lib/sch
 export const DASHBOARD_PERIODS = ['today', 'week', 'month', 'last7', 'last30'] as const;
 export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
 
+/** Período vindo da query string; valor ausente ou desconhecido vale `month`. */
+export function parseDashboardPeriod(value: unknown): DashboardPeriod {
+  return DASHBOARD_PERIODS.find((period) => period === value) ?? 'month';
+}
+
 type ActivityBucket = {
   start: Date;
   end: Date;

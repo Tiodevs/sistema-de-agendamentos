@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import type { Prisma, Role } from '@prisma/client';
 import { prisma } from '../config/database';
 import {
   RegisterInput,
@@ -8,10 +9,12 @@ import {
   ChangePasswordInput,
   ListClientsQuery,
   AcceptInviteInput,
+  CreateClientInput,
   passwordSchema,
 } from '../schemas/auth.schema';
 import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import {
+  notifyAccountActivation,
   notifyEmailChangeConfirm,
   notifyEmailChangeNotice,
   notifyEmailVerification,
@@ -22,8 +25,10 @@ import {
 import { storageService } from './storage.service';
 import { userAvatarUrl } from '../lib/avatar';
 import { httpError } from '../lib/http-error';
+import { logger } from '../lib/logger';
 import { signAccessToken } from '../lib/jwt';
 import {
+  ACCOUNT_ACTIVATION_TTL_MS,
   createPasswordResetToken,
   EMAIL_CHANGE_TTL_MS,
   EMAIL_VERIFICATION_TTL_MS,
@@ -70,10 +75,11 @@ const profileSelect = {
 type ProfileRecord = {
   id: string;
   name: string;
-  email: string;
+  /** `null` só no cliente rápido sem e-mail (UX-03), que não tem sessão. */
+  email: string | null;
   phone: string | null;
   avatar: string | null;
-  role: string;
+  role: Role;
   active?: boolean;
   emailVerifiedAt?: Date | null;
   createdAt: Date;
@@ -86,7 +92,7 @@ type ProfileRecord = {
 function generateToken(user: ProfileRecord) {
   return signAccessToken({
     id: user.id,
-    email: user.email,
+    email: user.email ?? '',
     role: user.role,
     tokenVersion: user.tokenVersion ?? 0,
   });
@@ -97,7 +103,7 @@ function toPublicUser(user: ProfileRecord, pendingEmail: string | null = null) {
   return {
     id: user.id,
     name: user.name,
-    email: user.email,
+    email: user.email ?? '',
     phone: user.phone,
     role: user.role,
     employeeId,
@@ -132,9 +138,9 @@ const EXPECTED_REVENUE_STATUSES = new Set(['SCHEDULED', 'CONFIRMED', 'IN_PROGRES
 function mapClientListItem(client: {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
-  role: string;
+  role: Role;
   avatar: string | null;
   updatedAt: Date;
   active: boolean;
@@ -236,13 +242,13 @@ function buildClientStats(
 }
 
 /** E-mail novo aguardando confirmação. A confirmação do próprio e-mail do cadastro não conta como troca. */
-async function getPendingEmail(userId: string, currentEmail: string) {
+async function getPendingEmail(userId: string, currentEmail: string | null) {
   const pending = await prisma.emailChangeToken.findFirst({
     where: { userId, usedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
     select: { newEmail: true },
   });
-  if (!pending || pending.newEmail === currentEmail.trim().toLowerCase()) return null;
+  if (!pending || pending.newEmail === currentEmail?.trim().toLowerCase()) return null;
   return pending.newEmail;
 }
 
@@ -272,19 +278,23 @@ async function issueEmailConfirmation(userId: string, email: string, ttlMs: numb
   };
 }
 
-async function assertEmailAvailable(email: string, userId: string, employeeId?: string | null) {
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-  if (existingUser && existingUser.id !== userId) {
-    throw httpError('E-mail já está em uso', 409);
-  }
+async function isEmailAvailable(email: string, userId: string, employeeId?: string | null) {
+  const existingUser = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (existingUser && existingUser.id !== userId) return false;
 
   if (employeeId) {
     const existingEmployee = await prisma.employee.findFirst({
       where: { email, NOT: { id: employeeId } },
+      select: { id: true },
     });
-    if (existingEmployee) {
-      throw httpError('E-mail já está em uso', 409);
-    }
+    if (existingEmployee) return false;
+  }
+  return true;
+}
+
+async function assertEmailAvailable(email: string, userId: string, employeeId?: string | null) {
+  if (!(await isEmailAvailable(email, userId, employeeId))) {
+    throw httpError('E-mail já está em uso', 409);
   }
 }
 
@@ -371,13 +381,13 @@ export class AuthService {
     // vão depois da confirmação.
     const verification = await issueEmailConfirmation(
       user.id,
-      user.email,
+      data.email,
       EMAIL_VERIFICATION_TTL_MS,
     );
     notifyEmailVerification({
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: data.email,
       ...verification,
     });
 
@@ -394,7 +404,7 @@ export class AuthService {
       select: { id: true, name: true, email: true, active: true, emailVerifiedAt: true },
     });
 
-    if (!user?.active) {
+    if (!user?.active || !user.email) {
       throw httpError('Usuário não encontrado', 404);
     }
 
@@ -430,7 +440,8 @@ export class AuthService {
     });
 
     const passwordOk = await bcrypt.compare(data.password, user?.password ?? DUMMY_PASSWORD_HASH);
-    const valid = Boolean(user?.active && passwordOk);
+    // Conta sem senha (cliente rápido ainda não ativado, UX-03) nunca autentica.
+    const valid = Boolean(user?.active && user.password && passwordOk);
 
     if (!valid || !user) {
       const lockedNow = registerLoginFailure(data.email, ip);
@@ -457,12 +468,13 @@ export class AuthService {
     const record = await findOpenInvite(token);
     const account = await prisma.user.findUnique({
       where: { email: record.email },
-      select: { id: true },
+      select: { id: true, password: true },
     });
     return {
       email: record.email,
       employeeName: record.employee.name,
-      accountExists: Boolean(account),
+      // Conta sem senha (cliente rápido) segue o caminho de criar a senha.
+      accountExists: Boolean(account?.password),
       expiresAt: record.expiresAt.toISOString(),
     };
   }
@@ -484,7 +496,7 @@ export class AuthService {
         where: { id: sessionUserId },
         select: { id: true, email: true },
       });
-      if (!sessionUser || sessionUser.email.trim().toLowerCase() !== email) {
+      if (!sessionUser || sessionUser.email?.trim().toLowerCase() !== email) {
         throw httpError(
           `Este convite é para ${email}. Saia da conta atual e entre com esse e-mail.`,
           403,
@@ -493,8 +505,30 @@ export class AuthService {
       }
       userId = sessionUser.id;
     } else {
-      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-      if (existing) {
+      const existing = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, password: true },
+      });
+      if (existing && !existing.password) {
+        // Conta criada pela recepção, ainda sem senha (UX-03): o link prova que o e-mail é da
+        // pessoa, então ela cria a senha aqui.
+        const parsed = passwordSchema.safeParse(input.password ?? '');
+        if (!parsed.success) {
+          throw httpError(
+            input.password ? parsed.error.issues[0].message : 'Crie uma senha para aceitar.',
+            400,
+            'WEAK_PASSWORD',
+          );
+        }
+        await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            password: await bcrypt.hash(parsed.data, BCRYPT_ROUNDS),
+            passwordChangedAt: new Date(),
+          },
+        });
+        userId = existing.id;
+      } else if (existing) {
         if (!input.password) {
           throw httpError('Entre com a senha da sua conta para aceitar.', 401, 'PASSWORD_REQUIRED');
         }
@@ -622,10 +656,12 @@ export class AuthService {
       throw httpError('Usuário não encontrado', 404);
     }
 
-    const emailChanged = data.email !== current.email.trim().toLowerCase();
-    if (emailChanged) {
-      await assertEmailAvailable(data.email, userId, current.employee?.id);
-    }
+    const emailChanged = data.email !== current.email?.trim().toLowerCase();
+    // SEC-10: a resposta é a mesma se o e-mail novo já for de outra conta. Nesse caso o pedido
+    // fica registrado, mas nenhum link é enviado (e a confirmação recusaria de qualquer forma).
+    const emailTaken = emailChanged
+      ? !(await isEmailAvailable(data.email, userId, current.employee?.id))
+      : false;
 
     const phone = data.phone === undefined ? undefined : data.phone || null;
 
@@ -653,20 +689,24 @@ export class AuthService {
       );
       pendingEmail = data.email;
 
-      notifyEmailChangeConfirm({
-        id: user.id,
-        name: user.name,
-        email: data.email,
-        tokenId,
-        confirmUrl,
-      });
-      notifyEmailChangeNotice({
-        id: user.id,
-        name: user.name,
-        email: current.email,
-        newEmail: data.email,
-        tokenId,
-      });
+      if (!emailTaken) {
+        notifyEmailChangeConfirm({
+          id: user.id,
+          name: user.name,
+          email: data.email,
+          tokenId,
+          confirmUrl,
+        });
+      }
+      if (current.email) {
+        notifyEmailChangeNotice({
+          id: user.id,
+          name: user.name,
+          email: current.email,
+          newEmail: data.email,
+          tokenId,
+        });
+      }
     }
 
     return toPublicUser(user, pendingEmail);
@@ -729,7 +769,7 @@ export class AuthService {
 
     await syncLinkedEmployee(record.userId, { email: record.newEmail });
 
-    const changed = record.newEmail !== record.user.email.trim().toLowerCase();
+    const changed = record.newEmail !== record.user.email?.trim().toLowerCase();
     if (!record.user.emailVerifiedAt) {
       notifyWelcome({ id: record.user.id, name: record.user.name, email: record.newEmail });
     }
@@ -737,10 +777,7 @@ export class AuthService {
     return { changed };
   }
 
-  async updateAvatar(
-    userId: string,
-    file: { buffer: Buffer; mimetype: string; originalname: string },
-  ) {
+  async updateAvatar(userId: string, file: { buffer: Buffer }) {
     const current = await prisma.user.findUnique({
       where: { id: userId },
       select: profileSelect,
@@ -762,7 +799,7 @@ export class AuthService {
 
     if (current.avatar && current.avatar !== key) {
       storageService.deleteObject(current.avatar).catch((error) => {
-        console.error('[storage] falha ao remover avatar antigo', error);
+        logger.warn({ err: error }, 'storage: falha ao remover avatar antigo');
       });
     }
 
@@ -791,7 +828,7 @@ export class AuthService {
 
     await syncLinkedEmployee(userId, { avatarUrl: null });
     storageService.deleteObject(current.avatar).catch((error) => {
-      console.error('[storage] falha ao remover avatar', error);
+      logger.warn({ err: error }, 'storage: falha ao remover avatar');
     });
 
     return toPublicUser(user, await getPendingEmail(userId, user.email));
@@ -807,18 +844,14 @@ export class AuthService {
       throw httpError('Foto de perfil não encontrada', 404);
     }
 
-    return storageService.getObject(user.avatar);
+    return storageService.getObjectStream(user.avatar);
   }
 
   async getClients(query: ListClientsQuery = {}) {
     const search = query.search?.trim() || undefined;
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
-    const where: {
-      active?: boolean;
-      role?: string;
-      OR?: Array<Record<string, unknown>>;
-    } = {};
+    const where: Prisma.UserWhereInput = {};
 
     if (query.active === 'true') where.active = true;
     else if (query.active === 'false') where.active = false;
@@ -854,6 +887,73 @@ export class AuthService {
         totalPages: Math.max(1, Math.ceil(total / limit)),
       },
     };
+  }
+
+  /**
+   * UX-03: a recepção cadastra quem ligou, sem senha. Com e-mail, a pessoa recebe um link para
+   * criar a senha (o mesmo de "nova senha", com prazo de 7 dias); sem e-mail, a conta existe só
+   * para a agenda. Contato repetido devolve 409 com o cliente que já existe.
+   */
+  async createClient(data: CreateClientInput) {
+    const email = data.email || null;
+    const phone = data.phone || null;
+
+    if (email) {
+      const existing = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, name: true, role: true },
+      });
+      if (existing) {
+        throw httpError('Já existe uma conta com este e-mail.', 409, 'CLIENT_EXISTS', {
+          client: existing,
+          match: 'email',
+        });
+      }
+    }
+
+    if (phone) {
+      const digits = phone.replace(/\D/g, '');
+      const samePhone = await prisma.$queryRaw<Array<{ id: string; name: string; role: Role }>>`
+        SELECT "id", "name", "role"::text AS "role" FROM "users"
+         WHERE "phone" IS NOT NULL
+           AND regexp_replace("phone", '\\D', '', 'g') = ${digits}
+         ORDER BY "createdAt"
+         LIMIT 1`;
+      if (samePhone[0]) {
+        throw httpError('Já existe um cliente com este telefone.', 409, 'CLIENT_EXISTS', {
+          client: samePhone[0],
+          match: 'phone',
+        });
+      }
+    }
+
+    const user = await prisma.user.create({
+      data: { name: data.name, email, phone, password: null },
+      select: clientListSelect,
+    });
+
+    let activationSent = false;
+    if (email) {
+      const { token, tokenHash } = createPasswordResetToken();
+      const created = await prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt: new Date(Date.now() + ACCOUNT_ACTIVATION_TTL_MS),
+        },
+        select: { id: true },
+      });
+      notifyAccountActivation({
+        id: user.id,
+        name: user.name,
+        email,
+        tokenId: created.id,
+        activateUrl: `${appUrl()}/reset-password#token=${encodeURIComponent(token)}`,
+      });
+      activationSent = true;
+    }
+
+    return { client: mapClientListItem(user), activationSent };
   }
 
   async getClientById(id: string) {
@@ -896,7 +996,8 @@ export class AuthService {
         select: { id: true, name: true, email: true, active: true },
       });
 
-      if (user?.active) {
+      if (user?.active && user.email) {
+        const email = user.email;
         const { token, tokenHash } = createPasswordResetToken();
         const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
         const now = new Date();
@@ -915,7 +1016,7 @@ export class AuthService {
         notifyPasswordReset({
           id: user.id,
           name: user.name,
-          email: user.email,
+          email,
           tokenId: created.id,
           resetUrl: `${appUrl()}/reset-password#token=${encodeURIComponent(token)}`,
         });
@@ -952,7 +1053,10 @@ export class AuthService {
       throw httpError('Link inválido ou expirado', 400);
     }
 
-    const samePassword = await bcrypt.compare(data.password, record.user.password);
+    // Conta sem senha (cliente rápido, UX-03): este link é a ativação, não há senha anterior.
+    const samePassword = record.user.password
+      ? await bcrypt.compare(data.password, record.user.password)
+      : false;
     if (samePassword) {
       throw httpError('A nova senha deve ser diferente da senha atual', 400);
     }
@@ -988,14 +1092,18 @@ export class AuthService {
     });
 
     // Quem provou ser dono do e-mail volta a entrar na hora, de qualquer IP.
-    clearLoginFailures(record.user.email);
-
-    notifyPasswordChanged({
-      id: record.user.id,
-      name: record.user.name,
-      email: record.user.email,
-      changedAt: passwordChangedAt,
-    });
+    if (record.user.email) {
+      clearLoginFailures(record.user.email);
+      // Na ativação (conta sem senha) não há "senha alterada" para avisar.
+      if (record.user.password) {
+        notifyPasswordChanged({
+          id: record.user.id,
+          name: record.user.name,
+          email: record.user.email,
+          changedAt: passwordChangedAt,
+        });
+      }
+    }
   }
 
   async changePassword(userId: string, data: ChangePasswordInput) {
@@ -1014,7 +1122,7 @@ export class AuthService {
       select: { ...profileSelect, password: true, active: true },
     });
 
-    if (!user?.active) {
+    if (!user?.active || !user.password) {
       throw httpError('Usuário não encontrado', 404);
     }
 
@@ -1050,12 +1158,14 @@ export class AuthService {
       return nextUser;
     });
 
-    notifyPasswordChanged({
-      id: updated.id,
-      name: updated.name,
-      email: updated.email,
-      changedAt: passwordChangedAt,
-    });
+    if (updated.email) {
+      notifyPasswordChanged({
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        changedAt: passwordChangedAt,
+      });
+    }
 
     return {
       user: toPublicUser(updated, await getPendingEmail(userId, updated.email)),

@@ -5,59 +5,57 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
-import path from 'path';
-
-const EXT_BY_MIME: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-};
+import type { Readable } from 'node:stream';
+import { httpError } from '../lib/http-error';
+import { sniffImageType } from '../lib/image-signature';
 
 function required(name: string): string {
   const value = process.env[name];
   if (!value) {
-    const error = new Error('Armazenamento de fotos não está configurado') as Error & {
-      statusCode: number;
-    };
-    error.statusCode = 503;
-    throw error;
+    throw httpError('Armazenamento de fotos não está configurado', 503, 'STORAGE_NOT_CONFIGURED');
   }
   return value;
 }
 
-function createClient() {
-  return new S3Client({
-    region: process.env.S3_REGION || 'auto',
-    endpoint: required('S3_ENDPOINT'),
-    credentials: {
-      accessKeyId: required('S3_ACCESS_KEY_ID'),
-      secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
-    },
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  });
+let client: S3Client | null = null;
+
+/** Um único cliente S3 por processo (SEC-09): antes, cada foto servida criava um novo. */
+function s3() {
+  if (!client) {
+    client = new S3Client({
+      region: process.env.S3_REGION || 'auto',
+      endpoint: required('S3_ENDPOINT'),
+      credentials: {
+        accessKeyId: required('S3_ACCESS_KEY_ID'),
+        secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+      },
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+  }
+  return client;
 }
 
 export class StorageService {
-  async uploadAvatar(
-    userId: string,
-    file: { buffer: Buffer; mimetype: string; originalname: string },
-  ) {
-    const ext =
-      EXT_BY_MIME[file.mimetype] ||
-      path.extname(file.originalname).replace('.', '').toLowerCase() ||
-      'jpg';
-    const key = `avatars/${userId}/${randomUUID()}.${ext}`;
-    const s3 = createClient();
+  /**
+   * Grava a foto de perfil. O tipo vem dos bytes do arquivo, não do que o navegador declarou:
+   * conteúdo que não é JPEG, PNG, WEBP ou GIF é recusado com 400.
+   */
+  async uploadAvatar(userId: string, file: { buffer: Buffer }) {
+    const type = sniffImageType(file.buffer);
+    if (!type) {
+      throw httpError('Use uma imagem JPG, PNG, WEBP ou GIF', 400, 'INVALID_IMAGE');
+    }
 
-    await s3.send(
+    const key = `avatars/${userId}/${randomUUID()}.${type.ext}`;
+
+    await s3().send(
       new PutObjectCommand({
         Bucket: required('S3_BUCKET'),
         Key: key,
         Body: file.buffer,
-        ContentType: file.mimetype,
+        ContentType: type.mime,
         CacheControl: 'public, max-age=31536000, immutable',
       }),
     );
@@ -67,8 +65,7 @@ export class StorageService {
 
   async deleteObject(key: string) {
     if (!key) return;
-    const s3 = createClient();
-    await s3.send(
+    await s3().send(
       new DeleteObjectCommand({
         Bucket: required('S3_BUCKET'),
         Key: key,
@@ -76,24 +73,32 @@ export class StorageService {
     );
   }
 
-  async getObject(key: string) {
-    const s3 = createClient();
-    const object = await s3.send(
-      new GetObjectCommand({
-        Bucket: required('S3_BUCKET'),
-        Key: key,
-      }),
-    );
-
-    if (!object.Body) {
-      const error = new Error('Arquivo não encontrado') as Error & { statusCode: number };
-      error.statusCode = 404;
+  /** Abre o arquivo como stream: a foto vai do bucket para a resposta sem passar inteira pela memória. */
+  async getObjectStream(key: string) {
+    let object;
+    try {
+      object = await s3().send(
+        new GetObjectCommand({
+          Bucket: required('S3_BUCKET'),
+          Key: key,
+        }),
+      );
+    } catch (error) {
+      const name = (error as { name?: string } | null)?.name;
+      if (name === 'NoSuchKey' || name === 'NotFound') {
+        throw httpError('Arquivo não encontrado', 404);
+      }
       throw error;
     }
 
+    if (!object.Body) {
+      throw httpError('Arquivo não encontrado', 404);
+    }
+
     return {
-      body: Buffer.from(await object.Body.transformToByteArray()),
+      stream: object.Body as Readable,
       contentType: object.ContentType || 'application/octet-stream',
+      contentLength: object.ContentLength,
     };
   }
 }

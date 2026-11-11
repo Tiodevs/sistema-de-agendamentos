@@ -17,15 +17,18 @@ export const createEmployeeSchema = z.object({
     .trim()
     .optional()
     .or(z.literal('')),
-  avatar: z
-    .string()
-    .url('URL do avatar inválida')
-    .trim()
-    .optional()
-    .or(z.literal('')),
+  avatar: z.string().url('URL do avatar inválida').trim().optional().or(z.literal('')),
 });
 
-export const updateEmployeeSchema = createEmployeeSchema.partial();
+export const updateEmployeeSchema = createEmployeeSchema.partial().extend({
+  /** UX-12: respiro, em minutos, entre dois atendimentos do profissional. */
+  bufferMinutes: z
+    .number({ error: 'Respiro inválido' })
+    .int('Respiro inválido')
+    .min(0, 'Respiro inválido')
+    .max(120, 'O respiro pode ter no máximo 120 minutos')
+    .optional(),
+});
 
 export const assignProductsSchema = z.object({
   productIds: z.array(z.string({ error: 'ID do produto inválido' })),

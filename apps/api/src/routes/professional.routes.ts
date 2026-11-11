@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { ProfessionalController } from '../controllers/professional.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { professionalMiddleware } from '../middlewares/professional.middleware';
 
 const professionalRouter = Router();
-const professionalController = new ProfessionalController();
+const professionalController = asyncController(new ProfessionalController());
 
 /**
  * @swagger

@@ -2,6 +2,20 @@ import { z } from 'zod';
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+/** UX-12: pausas do dia (almoço, intervalo). Até 4, cada uma com início antes do fim. */
+const breaksSchema = z
+  .array(
+    z
+      .object({
+        start: z.string().regex(timeRegex, 'Formato inválido (use HH:mm)'),
+        end: z.string().regex(timeRegex, 'Formato inválido (use HH:mm)'),
+      })
+      .refine((range) => range.start < range.end, {
+        message: 'O início da pausa deve ser anterior ao fim',
+      }),
+  )
+  .max(4, 'No máximo 4 pausas por dia');
+
 export const upsertBusinessHourSchema = z.object({
   dayOfWeek: z.number({ error: 'Dia da semana é obrigatório' }).int().min(0).max(6),
   openTime: z
@@ -11,6 +25,8 @@ export const upsertBusinessHourSchema = z.object({
     .string({ error: 'Horário de fechamento é obrigatório' })
     .regex(timeRegex, 'Formato inválido (use HH:mm)'),
   isClosed: z.boolean().optional().default(false),
+  /** Ausente = mantém as pausas que já estavam gravadas no dia. */
+  breaks: breaksSchema.optional(),
 });
 
 export const upsertAllBusinessHoursSchema = z.object({

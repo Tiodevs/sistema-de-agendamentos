@@ -59,13 +59,21 @@ export const availabilitySlotsSchema = z.object({
   date: dateKeySchema,
 });
 
-/** `GET /appointments` (admin). */
+/**
+ * `GET /appointments` (admin). UX-09: a lista é paginada e, sem `from`/`to`/`clientId`, começa em
+ * hoje (o serviço aplica o padrão), em vez de trazer a agenda inteira desde o primeiro dia.
+ */
 export const listAppointmentsQuerySchema = z.object({
   employeeId: idFilterSchema.optional(),
   clientId: idFilterSchema.optional(),
   status: statusSchema.optional(),
   from: periodBoundary('start').optional(),
   to: periodBoundary('end').optional(),
+  /** Nome, e-mail ou telefone do cliente. */
+  search: z.string().trim().max(120).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 /** `GET /appointments/my`. */

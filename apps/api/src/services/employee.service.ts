@@ -183,6 +183,7 @@ export class EmployeeService {
           ...(data.email !== undefined && { email: data.email }),
           ...(data.phone !== undefined && { phone: data.phone || null }),
           ...(data.avatar !== undefined && { avatar: data.avatar || null }),
+          ...(data.bufferMinutes !== undefined && { bufferMinutes: data.bufferMinutes }),
         },
       });
       if (emailChanged && !current.userId) {

@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { EmployeeController } from '../controllers/employee.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { adminMiddleware } from '../middlewares/admin.middleware';
 
 const employeeRouter = Router();
-const employeeController = new EmployeeController();
+const employeeController = asyncController(new EmployeeController());
 
 /**
  * @swagger

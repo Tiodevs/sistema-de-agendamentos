@@ -1,15 +1,19 @@
 import { Router } from 'express';
+import { asyncController } from '../lib/async-handler';
 import { AuthController } from '../controllers/auth.controller';
+import { rateLimitByIp } from '../middlewares/rate-limit.middleware';
 
 const usersRouter = Router();
-const authController = new AuthController();
+const authController = asyncController(new AuthController());
 
 /**
  * @swagger
  * /api/users/{id}/avatar:
  *   get:
  *     summary: Foto de perfil pública
- *     description: Entrega a foto armazenada no bucket, se existir.
+ *     description: >-
+ *       Entrega a foto armazenada no bucket, se existir. Pública (um `<img>` não envia o token),
+ *       com limite de requisições por IP.
  *     tags: [Auth]
  *     parameters:
  *       - in: path
@@ -27,7 +31,11 @@ const authController = new AuthController();
  *               format: binary
  *       404:
  *         description: Foto não encontrada
+ *       429:
+ *         description: Muitas requisições deste IP
  */
-usersRouter.get('/:id/avatar', (req, res, next) => authController.getAvatar(req, res, next));
+usersRouter.get('/:id/avatar', rateLimitByIp('avatar', 600, 60 * 1000), (req, res, next) =>
+  authController.getAvatar(req, res, next),
+);
 
 export { usersRouter };

@@ -7,6 +7,11 @@ const buckets = new Map<string, { windowMs: number; stamps: number[] }>();
 /** Chave: e-mail + IP. Errar a senha de um IP não bloqueia o mesmo e-mail vindo de outro. */
 const loginLocks = new Map<string, LoginLock>();
 const MAX_KEYS = 10_000;
+/**
+ * Chaves que mudaram desde a última gravação no banco (SEC-08). Prefixo `b:` = janela deslizante,
+ * `l:` = bloqueio de login. Quem grava é o `rate-limit-store`.
+ */
+const dirty = new Set<string>();
 export const LOGIN_FAILURE_LIMIT = 5;
 /** Janela em que as falhas se somam e duração do bloqueio. */
 export const LOGIN_LOCK_MS = 15 * 60 * 1000;
@@ -36,7 +41,10 @@ export function consumeRateLimit(key: string, limit: number, windowMs: number, n
   const windowStart = now - windowMs;
   const stamps = (buckets.get(key)?.stamps ?? []).filter((stamp) => stamp > windowStart);
   const allowed = stamps.length < limit;
-  if (allowed) stamps.push(now);
+  if (allowed) {
+    stamps.push(now);
+    dirty.add(`b:${key}`);
+  }
   buckets.set(key, { windowMs, stamps });
   return allowed;
 }
@@ -94,6 +102,7 @@ export function registerLoginFailure(email: string, ip: string, now = Date.now()
     entry.lockedUntil = now + LOGIN_LOCK_MS;
   }
   loginLocks.set(key, entry);
+  dirty.add(`l:${key}`);
   return entry.lockedUntil ? new Date(entry.lockedUntil) : null;
 }
 
@@ -118,11 +127,112 @@ export function loginLockedError(lockedUntil: Date) {
 /** Sem `ip`, libera o e-mail em todos os IPs (usado depois do reset de senha). */
 export function clearLoginFailures(email: string, ip?: string) {
   if (ip !== undefined) {
-    loginLocks.delete(loginLockKey(email, ip));
+    const key = loginLockKey(email, ip);
+    if (loginLocks.delete(key)) dirty.add(`l:${key}`);
     return;
   }
   const prefix = loginLockKey(email, '');
   for (const key of loginLocks.keys()) {
-    if (key.startsWith(prefix)) loginLocks.delete(key);
+    if (key.startsWith(prefix)) {
+      loginLocks.delete(key);
+      dirty.add(`l:${key}`);
+    }
   }
+}
+
+/* ───────────── Persistência (SEC-08) ───────────── */
+
+export type RateLimitSnapshot =
+  | { key: string; kind: 'bucket' | 'login'; data: unknown; expiresAt: Date }
+  | { key: string; deleted: true };
+
+/**
+ * O que mudou desde a última chamada, pronto para gravar: o estado atual de cada chave ou a marca
+ * de que ela foi apagada. Esvazia a lista de pendências.
+ */
+export function takeDirtyRateLimits(now = Date.now()): RateLimitSnapshot[] {
+  const snapshots: RateLimitSnapshot[] = [];
+  for (const id of dirty) {
+    const key = id.slice(2);
+    if (id.startsWith('b:')) {
+      const bucket = buckets.get(key);
+      const stamps = bucket?.stamps.filter((stamp) => now - stamp < bucket.windowMs) ?? [];
+      if (!bucket || stamps.length === 0) {
+        snapshots.push({ key: id, deleted: true });
+      } else {
+        snapshots.push({
+          key: id,
+          kind: 'bucket',
+          data: { windowMs: bucket.windowMs, stamps },
+          expiresAt: new Date(Math.max(...stamps) + bucket.windowMs),
+        });
+      }
+      continue;
+    }
+    const entry = loginLocks.get(key);
+    if (!entry || isStale(entry, now)) {
+      snapshots.push({ key: id, deleted: true });
+    } else {
+      snapshots.push({
+        key: id,
+        kind: 'login',
+        data: entry,
+        expiresAt: new Date(entry.lockedUntil || entry.windowStart + LOGIN_LOCK_MS),
+      });
+    }
+  }
+  dirty.clear();
+  return snapshots;
+}
+
+/** Devolve as chaves à lista de pendências quando a gravação falha. */
+export function markRateLimitsDirty(keys: string[]) {
+  for (const key of keys) dirty.add(key);
+}
+
+function isBucketData(data: unknown): data is { windowMs: number; stamps: number[] } {
+  const value = data as { windowMs?: unknown; stamps?: unknown } | null;
+  return (
+    !!value &&
+    typeof value.windowMs === 'number' &&
+    Array.isArray(value.stamps) &&
+    value.stamps.every((stamp) => typeof stamp === 'number')
+  );
+}
+
+function isLoginData(data: unknown): data is LoginLock {
+  const value = data as Partial<LoginLock> | null;
+  return (
+    !!value &&
+    typeof value.failures === 'number' &&
+    typeof value.windowStart === 'number' &&
+    typeof value.lockedUntil === 'number'
+  );
+}
+
+/**
+ * Carrega o que estava gravado, na subida da API. O que já está em memória (requisições que
+ * chegaram antes da carga) tem prioridade. Linha com formato inesperado é ignorada.
+ */
+export function restoreRateLimits(
+  rows: Array<{ key: string; kind: string; data: unknown }>,
+  now = Date.now(),
+) {
+  let restored = 0;
+  for (const row of rows) {
+    const key = row.key.slice(2);
+    if (row.key.startsWith('b:') && isBucketData(row.data)) {
+      if (buckets.has(key)) continue;
+      const { windowMs, stamps } = row.data;
+      const fresh = stamps.filter((stamp) => now - stamp < windowMs);
+      if (fresh.length === 0) continue;
+      buckets.set(key, { windowMs, stamps: fresh });
+      restored += 1;
+    } else if (row.key.startsWith('l:') && isLoginData(row.data)) {
+      if (loginLocks.has(key) || isStale(row.data, now)) continue;
+      loginLocks.set(key, { ...row.data });
+      restored += 1;
+    }
+  }
+  return restored;
 }

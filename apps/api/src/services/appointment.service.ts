@@ -1,6 +1,9 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { appointmentInclude, mapAppointment } from '../lib/appointment-map';
 import {
+  breakIntervals,
+  conflictsWithBuffer,
   dayBounds,
   enumerateSlots,
   findMatchingSlot,
@@ -12,7 +15,7 @@ import {
   UPCOMING_BOOKING_STATUSES,
   isBeyondBookingWindow,
 } from '../lib/booking-rules';
-import { dateKeyFromInstant } from '../lib/datetime';
+import { dateKeyFromInstant, startOfZonedDay } from '../lib/datetime';
 import { httpError } from '../lib/http-error';
 import type {
   AppointmentListFilters,
@@ -25,31 +28,80 @@ import { ScheduleService } from './schedule.service';
 
 const scheduleService = new ScheduleService();
 const ACTIVE_STATUSES = {
-  notIn: ['CANCELLED', 'NO_SHOW'] as Array<'CANCELLED' | 'NO_SHOW'>,
-};
+  notIn: ['CANCELLED', 'NO_SHOW'],
+} satisfies Prisma.EnumAppointmentStatusFilter;
+
+const DEFAULT_PAGE_SIZE = 100;
+
+type ListFilters = Pick<
+  AppointmentListFilters,
+  'employeeId' | 'clientId' | 'status' | 'from' | 'to' | 'search'
+>;
+
+function listWhere(filters: ListFilters = {}): Prisma.AppointmentWhereInput {
+  const where: Prisma.AppointmentWhereInput = {};
+
+  if (filters.employeeId) where.employeeId = filters.employeeId;
+  if (filters.clientId) where.clientId = filters.clientId;
+  if (filters.status) where.status = filters.status;
+  if (filters.from || filters.to) {
+    where.date = {
+      ...(filters.from && { gte: filters.from }),
+      ...(filters.to && { lte: filters.to }),
+    };
+  }
+  if (filters.search) {
+    const contains = { contains: filters.search, mode: 'insensitive' as const };
+    where.client = { OR: [{ name: contains }, { email: contains }, { phone: contains }] };
+  }
+
+  return where;
+}
 
 export class AppointmentService {
-  /** Os filtros chegam validados pelo `listAppointmentsQuerySchema` (datas já convertidas). */
-  async findAll(filters?: AppointmentListFilters) {
-    const where: Record<string, unknown> = {};
-
-    if (filters?.employeeId) where.employeeId = filters.employeeId;
-    if (filters?.clientId) where.clientId = filters.clientId;
-    if (filters?.status) where.status = filters.status;
-    if (filters?.from || filters?.to) {
-      where.date = {
-        ...(filters.from && { gte: filters.from }),
-        ...(filters.to && { lte: filters.to }),
-      };
-    }
-
+  /** Lista completa, sem paginação: histórico de um cliente ou a agenda de um profissional. */
+  async findAll(filters?: ListFilters) {
     const appointments = await prisma.appointment.findMany({
-      where,
+      where: listWhere(filters),
       include: appointmentInclude,
       orderBy: { date: 'asc' },
     });
 
     return appointments.map(mapAppointment);
+  }
+
+  /**
+   * Agenda do admin (UX-09), paginada. Sem período nem cliente, começa em hoje: a tela abre no
+   * que vem pela frente, não no primeiro agendamento do estúdio.
+   */
+  async findPage(filters: AppointmentListFilters = {}) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? DEFAULT_PAGE_SIZE;
+    const hasScope = Boolean(filters.from || filters.to || filters.clientId);
+    const from = hasScope ? filters.from : startOfZonedDay(new Date());
+    const where = listWhere({ ...filters, from });
+
+    const [total, appointments] = await Promise.all([
+      prisma.appointment.count({ where }),
+      prisma.appointment.findMany({
+        where,
+        include: appointmentInclude,
+        orderBy: [{ date: filters.order ?? 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+
+    return {
+      appointments: appointments.map(mapAppointment),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+      period: { from: from?.toISOString() ?? null, to: filters.to?.toISOString() ?? null },
+    };
   }
 
   async findById(id: string) {
@@ -138,16 +190,29 @@ export class AppointmentService {
 
         await tx.$queryRaw`SELECT id FROM employees WHERE id = ${data.employeeId} FOR UPDATE`;
 
+        // UX-12: com respiro, o intervalo livre antes e depois de cada atendimento também conta.
+        const bufferMs = employee.bufferMinutes * 60 * 1000;
         const conflict = await tx.appointment.findFirst({
           where: {
             employeeId: data.employeeId,
             status: ACTIVE_STATUSES,
-            AND: [{ date: { lt: endDate } }, { endDate: { gt: startDate } }],
+            AND: [
+              { date: { lt: new Date(endDate.getTime() + bufferMs) } },
+              { endDate: { gt: new Date(startDate.getTime() - bufferMs) } },
+            ],
           },
+          select: { date: true, endDate: true },
         });
 
         if (conflict) {
-          throw httpError('O funcionário já possui um agendamento neste horário', 409);
+          const overlapsDirectly = conflict.date < endDate && conflict.endDate > startDate;
+          throw httpError(
+            overlapsDirectly
+              ? 'O funcionário já possui um agendamento neste horário'
+              : `Este profissional precisa de ${employee.bufferMinutes} minutos entre os atendimentos. Escolha outro horário.`,
+            409,
+            overlapsDirectly ? undefined : 'BUFFER_CONFLICT',
+          );
         }
 
         return tx.appointment.create({
@@ -246,6 +311,7 @@ export class AppointmentService {
         employee: { id: employee.id, name: employee.name },
         product: { id: product.id, name: product.name, duration: product.duration },
         businessHours: { start: schedule.openTime, end: schedule.closeTime },
+        breaks: [],
         isClosed: true,
         slots: [],
       };
@@ -263,11 +329,12 @@ export class AppointmentService {
     });
 
     const now = new Date();
-    const slots = enumerateSlots(dayStart, dayEnd, product.duration).map((slot) => {
+    const pauses = breakIntervals(dateStr, schedule.breaks);
+    const slots = enumerateSlots(dayStart, dayEnd, product.duration, pauses).map((slot) => {
       const isPast = slot.start <= now;
-      const hasConflict = existingAppointments.some((appt) => {
-        return slot.start < appt.endDate && slot.end > appt.date;
-      });
+      const hasConflict = existingAppointments.some((appt) =>
+        conflictsWithBuffer(slot, { start: appt.date, end: appt.endDate }, employee.bufferMinutes),
+      );
 
       return {
         start: slot.start.toISOString(),
@@ -281,6 +348,7 @@ export class AppointmentService {
       employee: { id: employee.id, name: employee.name },
       product: { id: product.id, name: product.name, duration: product.duration },
       businessHours: { start: schedule.openTime, end: schedule.closeTime },
+      breaks: schedule.breaks,
       isClosed: false,
       slots,
     };
@@ -302,7 +370,12 @@ export class AppointmentService {
     }
 
     const { dayStart, dayEnd } = dayBounds(dateStr, schedule.openTime, schedule.closeTime);
-    const slots = enumerateSlots(dayStart, dayEnd, durationMinutes);
+    const slots = enumerateSlots(
+      dayStart,
+      dayEnd,
+      durationMinutes,
+      breakIntervals(dateStr, schedule.breaks),
+    );
     if (!findMatchingSlot(slots, startDate)) {
       throw httpError('Horário indisponível para este serviço', 400);
     }

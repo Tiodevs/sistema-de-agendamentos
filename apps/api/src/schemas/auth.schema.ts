@@ -101,6 +101,33 @@ export const acceptInviteSchema = z.object({
   password: z.string().max(128, 'Senha deve ter no máximo 128 caracteres').optional(),
 });
 
+const phoneSchema = z.string().regex(/^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/, 'Telefone inválido');
+
+/**
+ * UX-03: "cliente rápido" que a recepção cadastra ao telefone. Só o nome é obrigatório, mas é
+ * preciso pelo menos um contato (telefone ou e-mail) para o cliente ser encontrado depois.
+ */
+export const createClientSchema = z
+  .object({
+    name: z
+      .string({ error: 'Nome é obrigatório' })
+      .trim()
+      .min(2, 'Nome deve ter no mínimo 2 caracteres')
+      .max(100, 'Nome deve ter no máximo 100 caracteres'),
+    phone: phoneSchema.optional().or(z.literal('')),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .pipe(z.email({ error: 'E-mail inválido' }))
+      .optional()
+      .or(z.literal('')),
+  })
+  .refine((data) => Boolean(data.phone || data.email), {
+    message: 'Informe um telefone ou um e-mail',
+    path: ['phone'],
+  });
+
 export const listClientsQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   includeInactive: z.enum(['true', 'false']).optional(),
@@ -119,3 +146,4 @@ export type ConfirmEmailInput = z.infer<typeof confirmEmailSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type ListClientsQuery = z.infer<typeof listClientsQuerySchema>;
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+export type CreateClientInput = z.infer<typeof createClientSchema>;

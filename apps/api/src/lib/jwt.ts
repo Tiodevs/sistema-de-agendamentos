@@ -1,3 +1,4 @@
+import type { Role } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 
 const JWT_ALGORITHM = 'HS256' as const;
@@ -5,7 +6,7 @@ const JWT_ALGORITHM = 'HS256' as const;
 export type AccessTokenClaims = {
   id: string;
   email: string;
-  role: string;
+  role: Role;
   tv: number;
   iat?: number;
   exp?: number;
@@ -45,7 +46,7 @@ export function parseExpiresIn(value: string): number {
 export function signAccessToken(user: {
   id: string;
   email: string;
-  role: string;
+  role: Role;
   tokenVersion?: number;
 }) {
   return jwt.sign(

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { buildSha } from '../lib/build-info';
+import { logger } from '../lib/logger';
 
 const healthRouter = Router();
 
@@ -84,9 +85,7 @@ healthRouter.get('/ready', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({ status: 'ok', database: 'ok', build: buildSha() });
   } catch (error) {
-    console.error(
-      `[health] banco indisponível: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.error({ err: error, requestId: res.locals.requestId }, 'health: banco indisponível');
     res.status(503).json({
       status: 'error',
       message: 'Banco de dados indisponível',
