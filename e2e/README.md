@@ -36,6 +36,10 @@ npm run test:e2e:ui               # interface do Playwright
 
 Variáveis opcionais: `E2E_WEB_URL`, `E2E_API_URL`, `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, `E2E_USER_B_EMAIL`, `E2E_USER_B_PASSWORD`, `E2E_PROFESSIONAL_EMAIL`, `E2E_PROFESSIONAL_PASSWORD`, `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`. Não há senha padrão no código: sem `E2E_USER_PASSWORD`, cada execução sorteia a das contas `e2e.user.*`.
 
+## Na CI
+
+O job `e2e` do [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) roda a suíte estável num Postgres 18 descartável do próprio runner: aplica as migrations, roda o seed com uma `SEED_PASSWORD` sorteada na hora, builda a API e o web e sobe os dois pelo [`playwright.ci.config.ts`](../playwright.ci.config.ts), com a API nos mesmos valores do `docker-compose.yml`. Quando falha, o relatório HTML e os rastros ficam 7 dias no artefato `e2e-report` da execução. Essa configuração recusa rodar fora da CI.
+
 ## Relatórios
 
 - Agendamento: [RELATORIO-INTEGRIDADE.md](./RELATORIO-INTEGRIDADE.md)

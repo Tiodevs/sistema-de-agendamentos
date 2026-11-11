@@ -1,0 +1,232 @@
+# CI do sistema de agendamentos. A mesma estrutura da CI do AI-Chat, adaptada a este monorepo
+# (npm workspaces: API Express + Prisma em apps/api, web Next.js em apps/web).
+#
+# Quatro jobs sem dependência entre si, que rodam em paralelo: `api` (Prisma Client, build com o
+# tsc e testes de unidade), `web` (testes de unidade e o build do Next, que confere os tipos),
+# `contract` (as migrations aplicam do zero, o pré-deploy do Railway passa e o schema.prisma é
+# igual ao banco que elas produzem) e `e2e` (a suíte estável do Playwright contra a API e o web
+# de verdade, num Postgres descartável). Nenhum job lê segredo: o que precisa de senha (o JWT da
+# API e as contas do seed) é sorteado na hora, só para a execução.
+#
+# O `deploy.yml` escuta este workflow pelo nome `ci`, em `workflow_run`, e publica quando ele
+# termina verde num push para a `main`. Renomear o `name` abaixo desliga o deploy.
+#
+# Lint e Prettier ficam de fora por enquanto: o `npm run lint` dos dois apps não roda (ESLint 9
+# sem `eslint.config`, e o `next lint` abre um prompt interativo) e o Prettier acusa 19 arquivos.
+# Quando os dois passarem na máquina, entram como um passo nos jobs `api` e `web`.
+name: ci
+
+on:
+  # Toda pull request, para conferir a mudança antes do merge.
+  pull_request:
+  # Todo push na `main`, inclusive o merge de uma PR. É este resultado que libera o deploy.
+  push:
+    branches:
+      - main
+
+# O token do GitHub só lê o repositório.
+permissions:
+  contents: read
+
+# Uma execução por branch. Numa pull request, um push novo cancela a execução anterior; na `main`,
+# cada commit roda até o fim, porque é o resultado dele que libera o deploy.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # O `prepare` da raiz instala o Husky; na CI não há hook para instalar.
+  HUSKY: '0'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  # O build da API com o mesmo comando do Railway e os testes de unidade, que não tocam no banco.
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # Node do .nvmrc, o mesmo do Railway (RAILPACK_NODE_VERSION=20), com o cache do npm chaveado
+      # pelo package-lock.json da raiz.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # `npm ci` instala exatamente o package-lock.json, de todos os workspaces. Os testes do web
+      # usam o tsx que vem da API, então os jobs instalam o monorepo inteiro.
+      - name: Instalar dependências
+        run: npm ci
+      # `prisma generate && tsc`, o `npm run build --workspace=api` do Railway. O tsc em modo
+      # strict é a checagem de tipos da API.
+      - name: Build (Prisma Client e tsc)
+        run: npm run build --workspace=apps/api
+      # node:test + tsx em apps/api/test, pelo scripts/run-node-tests.mjs (funciona no Node 20).
+      # Inclui a compilação dos comentários @swagger das rotas.
+      - name: Testes de unidade
+        run: npm run test --workspace=apps/api
+
+  # Os testes de unidade do web e o build de produção do Next, o mesmo que a Vercel faz.
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Testes de unidade
+        run: npm run test --workspace=apps/web
+      # O `next build` também confere os tipos do app (o `next-env.d.ts` que o tsc precisa só
+      # existe depois dele). NEXT_PUBLIC_API_URL entra no bundle durante o build: aqui vale a API
+      # local, porque o build só prova que compila. O deploy.yml builda de novo com a URL de cada
+      # ambiente.
+      - name: Build e tipos
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+        run: npm run build --workspace=apps/web
+
+  # O contrato entre o código e o banco. Uma mudança no schema.prisma sem migration, uma migration
+  # que não aplica do zero ou uma consulta do pré-deploy que não vale mais para o schema falham
+  # aqui, antes do `prisma migrate deploy` de produção.
+  contract:
+    name: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Contêiner de serviço: um Postgres descartável, que só existe durante o job. A versão maior é
+    # a do Postgres do Railway (postgres-ssl:18).
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: agendamentos
+          POSTGRES_PASSWORD: agendamentos
+          POSTGRES_DB: agendamentos
+        # Publica a porta no runner, para os passos chegarem ao banco em 127.0.0.1:5432.
+        ports:
+          - 5432:5432
+        # Os passos esperam o banco ficar saudável: `pg_isready` a cada 10 s, com 5 s de prazo.
+        options: >-
+          --health-cmd "pg_isready -U agendamentos -d agendamentos -p 5432"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # O banco do runner: host local, porta 5432 e um nome que não é `railway`, o que a guarda de
+      # banco (apps/api/src/lib/database-guard.ts) aceita.
+      DATABASE_URL: postgresql://agendamentos:agendamentos@127.0.0.1:5432/agendamentos
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      # O comando de pre-deploy do Railway, igual, num banco vazio: a checagem só de leitura
+      # (apps/api/scripts/predeploy-check.mjs) e depois `prisma migrate deploy` com todas as
+      # migrations do repositório.
+      - name: Pré-deploy do Railway num banco vazio
+        run: npm run db:deploy --workspace=api
+      # A checagem de novo, agora sobre o banco migrado, como no deploy seguinte: as consultas
+      # dela valem para o schema atual, a trava de sobreposição existe e nenhuma migration falhou.
+      - name: Pré-deploy de novo, com o banco migrado
+        working-directory: apps/api
+        run: node scripts/predeploy-check.mjs
+      # Compara o banco migrado com o schema.prisma. `--exit-code` sai com 2 quando há diferença:
+      # falta uma migration. Para corrigir, `npx prisma migrate dev` na máquina, contra o Postgres
+      # do Docker, e commite a pasta nova em prisma/migrations.
+      - name: Schema igual às migrations
+        working-directory: apps/api
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+  # A suíte estável do Playwright (`npm run test:e2e`, sem @gap): API e telas contra a API e o web
+  # de verdade, sobre um Postgres descartável com as migrations e o seed. A API sobe com os mesmos
+  # valores do ambiente Docker local (playwright.ci.config.ts).
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    # Prazo do job inteiro. Na configuração, cada teste tem até 60 s.
+    timeout-minutes: 30
+    # O mesmo Postgres descartável do job `contract`.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: agendamentos
+          POSTGRES_PASSWORD: agendamentos
+          POSTGRES_DB: agendamentos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agendamentos -d agendamentos -p 5432"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # A API, as migrations e o seed usam este banco. O E2E apaga os próprios dados direto nele
+      # (hard delete) e confere, no global setup, que a API usa o mesmo banco.
+      DATABASE_URL: postgresql://agendamentos:agendamentos@127.0.0.1:5432/agendamentos
+      E2E_DATABASE_URL: postgresql://agendamentos:agendamentos@127.0.0.1:5432/agendamentos
+      E2E_API_URL: http://localhost:3001
+      E2E_WEB_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      # Valores só desta execução, sorteados aqui em vez de escritos no repositório: o segredo do
+      # JWT da API (os testes de JWT forjado e expirado assinam com ele) e a senha das contas do
+      # seed, com maiúscula e caractere especial. `add-mask` esconde os dois do log.
+      - name: Sortear os segredos de teste
+        run: |
+          jwt="$(openssl rand -hex 32)"
+          seed="Ci@$(openssl rand -hex 12)"
+          echo "::add-mask::${jwt}"
+          echo "::add-mask::${seed}"
+          {
+            echo "JWT_SECRET=${jwt}"
+            echo "SEED_PASSWORD=${seed}"
+          } >> "$GITHUB_ENV"
+      # Só o Chromium, com as bibliotecas do sistema de que ele precisa.
+      - name: Instalar o Chromium
+        run: npx playwright install --with-deps chromium
+      # `prisma generate && tsc`. O Prisma Client gerado também serve ao E2E, que limpa o banco
+      # por ele.
+      - name: Build da API
+        run: npm run build --workspace=apps/api
+      - name: Migrations
+        working-directory: apps/api
+        run: npx prisma migrate deploy
+      # Admin, cliente, profissionais *@leemia.dev, produtos e expediente, com a SEED_PASSWORD
+      # sorteada acima. A guarda de banco do seed aceita o Postgres do runner.
+      - name: Seed
+        run: npm run db:seed --workspace=apps/api
+      # O bundle chama a API em localhost:3001, a origem que o CORS da API aceita no E2E.
+      - name: Build do web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+        run: npm run build --workspace=apps/web
+      # O playwright.ci.config.ts sobe a API (`node dist/server.js`) e o web (`next start`) antes
+      # do global setup e derruba os dois no fim. O GitHub define CI=true, então o Playwright
+      # recusa `test.only` e repete uma vez o teste que falha.
+      - name: Playwright (suíte estável)
+        run: npm run test:e2e -- --config=playwright.ci.config.ts
+      # Só quando um passo anterior falhou: o relatório HTML e os rastros, vídeos e capturas das
+      # falhas. O artefato fica 7 dias na aba Actions.
+      - name: Guardar o relatório e os rastros das falhas
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
